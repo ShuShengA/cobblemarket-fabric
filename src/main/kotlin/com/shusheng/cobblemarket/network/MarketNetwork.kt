@@ -104,15 +104,16 @@ data class RequestMarketPayload(
     val minIvsDef: Int,
     val minIvsSpAtk: Int,
     val minIvsSpDef: Int,
-    val minIvsSpd: Int
+    val minIvsSpd: Int,
+    val pageSize: Int
 ) : CustomPayload {
     override fun getId(): CustomPayload.Id<out CustomPayload> = ID
 
     companion object {
         val ID = CustomPayload.Id<RequestMarketPayload>(CobbleMarket.id("request_market"))
         val CODEC: PacketCodec<PacketByteBuf, RequestMarketPayload> = PacketCodec.of(
-            { p, b -> b.writeString(p.speciesFilter); b.writeBoolean(p.shinyOnly); b.writeInt(p.minLevel); b.writeInt(p.maxLevel); b.writeString(p.sortMode); b.writeInt(p.page); b.writeString(p.genderFilter); b.writeString(p.typeFilter); b.writeInt(p.minIvsHp); b.writeInt(p.minIvsAtk); b.writeInt(p.minIvsDef); b.writeInt(p.minIvsSpAtk); b.writeInt(p.minIvsSpDef); b.writeInt(p.minIvsSpd) },
-            { b -> RequestMarketPayload(b.readString(), b.readBoolean(), b.readInt(), b.readInt(), b.readString(), b.readInt(), b.readString(), b.readString(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt()) }
+            { p, b -> b.writeString(p.speciesFilter); b.writeBoolean(p.shinyOnly); b.writeInt(p.minLevel); b.writeInt(p.maxLevel); b.writeString(p.sortMode); b.writeInt(p.page); b.writeString(p.genderFilter); b.writeString(p.typeFilter); b.writeInt(p.minIvsHp); b.writeInt(p.minIvsAtk); b.writeInt(p.minIvsDef); b.writeInt(p.minIvsSpAtk); b.writeInt(p.minIvsSpDef); b.writeInt(p.minIvsSpd); b.writeInt(p.pageSize) },
+            { b -> RequestMarketPayload(b.readString(), b.readBoolean(), b.readInt(), b.readInt(), b.readString(), b.readInt(), b.readString(), b.readString(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt()) }
         )
     }
 }
@@ -178,15 +179,15 @@ data class CancelFromMarketPayload(val listingId: UUID) : CustomPayload {
 
 data class MarketResultPayload(
     val success: Boolean,
-    val message: String
+    val message: Text
 ) : CustomPayload {
     override fun getId(): CustomPayload.Id<out CustomPayload> = ID
 
     companion object {
         val ID = CustomPayload.Id<MarketResultPayload>(CobbleMarket.id("market_result"))
         val CODEC: PacketCodec<PacketByteBuf, MarketResultPayload> = PacketCodec.of(
-            { p, b -> b.writeBoolean(p.success); b.writeString(p.message) },
-            { b -> MarketResultPayload(b.readBoolean(), b.readString()) }
+            { p, b -> b.writeBoolean(p.success); net.minecraft.text.TextCodecs.PACKET_CODEC.encode(b, p.message) },
+            { b -> MarketResultPayload(b.readBoolean(), net.minecraft.text.TextCodecs.PACKET_CODEC.decode(b)) }
         )
     }
 }
@@ -283,6 +284,46 @@ class CollectBalancePayload : CustomPayload {
     }
 }
 
+// ── History ──
+
+data class HistoryEntry(
+    val type: String,
+    val species: String,
+    val price: Int,
+    val buyerName: String,
+    val sellerName: String,
+    val timestamp: Long
+) {
+    fun write(buf: PacketByteBuf) {
+        buf.writeString(type); buf.writeString(species); buf.writeInt(price); buf.writeString(buyerName); buf.writeString(sellerName); buf.writeLong(timestamp)
+    }
+    companion object {
+        fun read(buf: PacketByteBuf) = HistoryEntry(buf.readString(), buf.readString(), buf.readInt(), buf.readString(), buf.readString(), buf.readLong())
+    }
+}
+
+data class RequestHistoryPayload(val all: Boolean) : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<RequestHistoryPayload>(CobbleMarket.id("request_history"))
+        val CODEC: PacketCodec<PacketByteBuf, RequestHistoryPayload> = PacketCodec.of(
+            { p, b -> b.writeBoolean(p.all) },
+            { b -> RequestHistoryPayload(b.readBoolean()) }
+        )
+    }
+}
+
+data class HistoryDataPayload(val entries: List<HistoryEntry>) : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<HistoryDataPayload>(CobbleMarket.id("history_data"))
+        val CODEC: PacketCodec<PacketByteBuf, HistoryDataPayload> = PacketCodec.of(
+            { p, b -> b.writeVarInt(p.entries.size); p.entries.forEach { it.write(b) } },
+            { b -> HistoryDataPayload((0 until b.readVarInt()).map { HistoryEntry.read(b) }) }
+        )
+    }
+}
+
 // ── C2S: Sell from storage ──
 
 data class SellFromStoragePayload(val pokemonUuid: UUID, val price: Int) : CustomPayload {
@@ -298,7 +339,6 @@ data class SellFromStoragePayload(val pokemonUuid: UUID, val price: Int) : Custo
 
 // ── Registration ──
 
-private const val LISTINGS_PER_PAGE = 10
 private const val LISTING_DURATION_DAYS = 7
 
 object MarketNetwork {
@@ -310,7 +350,9 @@ object MarketNetwork {
         PayloadTypeRegistry.playC2S().register(RequestMyPokemonPayload.ID, RequestMyPokemonPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(SellFromStoragePayload.ID, SellFromStoragePayload.CODEC)
         PayloadTypeRegistry.playC2S().register(CollectBalancePayload.ID, CollectBalancePayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(RequestHistoryPayload.ID, RequestHistoryPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MyPokemonListPayload.ID, MyPokemonListPayload.CODEC)
+        PayloadTypeRegistry.playS2C().register(HistoryDataPayload.ID, HistoryDataPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(OpenMarketPayload.ID, OpenMarketPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MarketDataPayload.ID, MarketDataPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MarketResultPayload.ID, MarketResultPayload.CODEC)
@@ -340,12 +382,13 @@ object MarketNetwork {
                 }
             )
 
-            val totalPages = ((results.size - 1) / LISTINGS_PER_PAGE) + 1
+            val pageSize = payload.pageSize.coerceIn(1, 30)
+            val totalPages = ((results.size - 1) / pageSize) + 1
             val clampedPage = payload.page.coerceIn(1, maxOf(1, totalPages))
 
             val pageEntries = if (results.isEmpty()) emptyList() else {
-                val start = (clampedPage - 1) * LISTINGS_PER_PAGE
-                results.drop(start).take(LISTINGS_PER_PAGE).map { listing ->
+                val start = (clampedPage - 1) * pageSize
+                results.drop(start).take(pageSize).map { listing ->
                     val detail = listing.extraData
                     ListingEntry(
                         id = listing.id,
@@ -385,15 +428,15 @@ object MarketNetwork {
                 val listing = state.getListing(payload.listingId)
 
                 if (listing == null || !listing.isActive()) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
                     return@execute
                 }
                 if (listing.sellerUuid == player.uuid) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own")))
                     return@execute
                 }
                 if (!removeCurrency(player, listing.price)) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName()).string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName())))
                     return@execute
                 }
 
@@ -402,18 +445,19 @@ object MarketNetwork {
                 val party = Cobblemon.storage.getParty(player)
                 if (!party.add(pokemon)) {
                     giveCurrency(player, listing.price)
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_full").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_full")))
                     return@execute
                 }
 
                 state.addPendingBalance(listing.sellerUuid, listing.price)
                 listing.status = ListingStatus.SOLD
                 state.markModified()
+                com.shusheng.cobblemarket.event.MarketEvents.PURCHASE.trigger(com.shusheng.cobblemarket.event.PurchaseEvent(player.uuid, player.name.string, listing.sellerUuid, listing, listing.price))
 
-                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.network.bought", listing.species, listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName()).string))
+                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.network.bought", listing.speciesText(), listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName())))
 
                 val seller = server.playerManager.getPlayer(listing.sellerUuid)
-                seller?.sendMessage(Text.translatable("cobblemarket.network.sold", listing.species), false)
+                seller?.sendMessage(Text.translatable("cobblemarket.network.sold", listing.speciesText()), false)
             }
         }
 
@@ -425,11 +469,11 @@ object MarketNetwork {
                 val listing = state.getListing(payload.listingId)
 
                 if (listing == null || !listing.isActive()) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
                     return@execute
                 }
                 if (listing.sellerUuid != player.uuid) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own")))
                     return@execute
                 }
 
@@ -437,13 +481,14 @@ object MarketNetwork {
                     .loadFromNBT(player.serverWorld.registryManager, listing.pokemonNbt)
                 val party = Cobblemon.storage.getParty(player)
                 if (!party.add(pokemon)) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_full").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_full")))
                     return@execute
                 }
 
                 listing.status = ListingStatus.CANCELLED
                 state.markModified()
-                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.cancelled", listing.species).string))
+                com.shusheng.cobblemarket.event.MarketEvents.CANCEL.trigger(com.shusheng.cobblemarket.event.CancelEvent(player.uuid, listing))
+                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.cancelled", listing.speciesText())))
             }
         }
 
@@ -486,7 +531,7 @@ object MarketNetwork {
                 val fee = if (feePercent > 0) Math.ceil(payload.price * feePercent / 100.0).toInt() else 0
                 if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
                     ServerPlayNetworking.send(player, MarketResultPayload(false,
-                        Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName()).string))
+                        Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName())))
                     return@execute
                 }
 
@@ -506,7 +551,7 @@ object MarketNetwork {
                     }
                 }
                 if (pokemon == null) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
                     return@execute
                 }
 
@@ -517,6 +562,7 @@ object MarketNetwork {
                 val extra = mutableMapOf(
                     "speciesId" to pokemon.species.resourceIdentifier.toString(),
                     "speciesName" to pokemon.species.translatedName.string,
+                    "speciesKey" to com.shusheng.cobblemarket.util.SpeciesText.translationKey(pokemon.species),
                     "primaryType" to "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
                     "ivsHp" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.HP].toString(),
                     "ivsAtk" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.ATTACK].toString(),
@@ -549,11 +595,12 @@ object MarketNetwork {
 
                 val state = MarketState.get(server)
                 state.addListing(listing)
+                com.shusheng.cobblemarket.event.MarketEvents.ADD.trigger(com.shusheng.cobblemarket.event.AddEvent(listing, fee))
 
-                val listedMsg = if (fee > 0)
-                    Text.translatable("cobblemarket.cmd.listed_fee", pokemon.species.translatedName.string, pokemon.level, payload.price, CurrencyHandler.getName(), fee, CurrencyHandler.getName()).string
+                val listedMsg: Text = if (fee > 0)
+                    Text.translatable("cobblemarket.cmd.listed_fee", pokemon.species.translatedName, pokemon.level, payload.price, CurrencyHandler.getName(), fee, CurrencyHandler.getName())
                 else
-                    Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName.string, pokemon.level, payload.price, CurrencyHandler.getName()).string
+                    Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName, pokemon.level, payload.price, CurrencyHandler.getName())
                 ServerPlayNetworking.send(player, MarketResultPayload(true, listedMsg))
             }
         }
@@ -565,11 +612,25 @@ object MarketNetwork {
                 val state = MarketState.get(server)
                 val amount = state.claimPendingBalance(player.uuid)
                 if (amount <= 0) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.cmd.no_earnings").string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.cmd.no_earnings")))
                     return@execute
                 }
                 CurrencyHandler.give(player, amount)
-                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.collected", amount, CurrencyHandler.getName()).string))
+                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.collected", amount, CurrencyHandler.getName())))
+            }
+        }
+
+        ServerPlayNetworking.registerGlobalReceiver(RequestHistoryPayload.ID) { payload, context ->
+            val player = context.player()
+            val server = player.server
+            server.execute {
+                val history = com.shusheng.cobblemarket.event.TransactionHistory.get(server)
+                val isAdmin = player.hasPermissionLevel(2)
+                val records = if (payload.all && isAdmin) history.getRecords() else history.getRecordsBySeller(player.uuid)
+                val entries = records.take(50).map { r ->
+                    HistoryEntry(r.type.name, r.species, r.price, r.buyerName, r.sellerName, r.timestamp)
+                }
+                ServerPlayNetworking.send(player, HistoryDataPayload(entries))
             }
         }
     }

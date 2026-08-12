@@ -82,7 +82,9 @@ class MarketState private constructor() : PersistentState() {
             listing.status = ListingStatus.EXPIRED
             val seller = server.playerManager.getPlayer(listing.sellerUuid)
             if (seller != null) {
-                returnPokemon(seller, listing)
+                if (returnPokemon(seller, listing)) {
+                    com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(seller.uuid, listing))
+                }
             } else {
                 pendingReturns.getOrPut(listing.sellerUuid) { mutableListOf() }.add(listing)
             }
@@ -94,7 +96,10 @@ class MarketState private constructor() : PersistentState() {
         val playerReturns = pendingReturns.remove(player.uuid) ?: return 0
         var returned = 0
         playerReturns.forEach { listing ->
-            if (returnPokemon(player, listing)) returned++
+            if (returnPokemon(player, listing)) {
+                returned++
+                com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(player.uuid, listing))
+            }
         }
         if (returned > 0) markDirty()
         return returned

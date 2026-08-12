@@ -1,10 +1,12 @@
 package com.shusheng.cobblemarket.client
 
 import com.shusheng.cobblemarket.CobbleMarket
+import com.shusheng.cobblemarket.network.HistoryDataPayload
 import com.shusheng.cobblemarket.network.MarketDataPayload
 import com.shusheng.cobblemarket.network.MarketResultPayload
 import com.shusheng.cobblemarket.network.MyPokemonListPayload
 import com.shusheng.cobblemarket.network.OpenMarketPayload
+import com.shusheng.cobblemarket.screen.HistoryScreen
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import com.shusheng.cobblemarket.screen.MarketScreen
 import com.shusheng.cobblemarket.screen.SellSelectScreen
@@ -63,6 +65,16 @@ object CobbleMarketClient : ClientModInitializer {
                 val screen = client.currentScreen
                 if (screen is SellSelectScreen) {
                     screen.onPokemonList(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(HistoryDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is HistoryScreen) {
+                    screen.onHistoryData(payload)
                 }
             }
         }

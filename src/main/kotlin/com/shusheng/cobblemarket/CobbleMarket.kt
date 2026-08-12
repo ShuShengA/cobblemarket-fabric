@@ -1,9 +1,11 @@
 package com.shusheng.cobblemarket
 
 import com.shusheng.cobblemarket.command.MarketCommands
+import com.shusheng.cobblemarket.event.TransactionHistory
 import com.shusheng.cobblemarket.market.MarketState
 import com.shusheng.cobblemarket.network.MarketNetwork
 import net.fabricmc.api.ModInitializer
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.text.Text
 import net.minecraft.util.Formatting
@@ -20,6 +22,15 @@ object CobbleMarket : ModInitializer {
 		com.shusheng.cobblemarket.config.CobbleMarketConfig.load()
 		MarketNetwork.register()
 		MarketCommands.register()
+		com.shusheng.cobblemarket.event.TransactionLogger.register()
+		TransactionHistory.register()
+
+		ServerLifecycleEvents.SERVER_STARTED.register { server ->
+			TransactionHistory.historyRef = TransactionHistory.get(server)
+		}
+		ServerLifecycleEvents.SERVER_STOPPING.register {
+			TransactionHistory.historyRef = null
+		}
 
 		ServerPlayConnectionEvents.JOIN.register { handler, _, _ ->
 			val player = handler.player

@@ -66,6 +66,9 @@ object MarketCommands {
                 .then(CommandManager.literal("gui")
                         .executes(::openGui)
                     )
+                .then(CommandManager.literal("history")
+                        .executes(::history)
+                    )
             )
         }
     }
@@ -95,6 +98,7 @@ object MarketCommands {
         val extra = mapOf(
             "speciesId" to pokemon.species.resourceIdentifier.toString(),
             "speciesName" to pokemon.species.translatedName.string,
+            "speciesKey" to com.shusheng.cobblemarket.util.SpeciesText.translationKey(pokemon.species),
             "primaryType" to "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
             "secondaryType" to (pokemon.secondaryType?.name?.lowercase()?.let { "cobblemon.type.$it" } ?: ""),
             "ivsHp" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.HP].toString(),
@@ -138,6 +142,7 @@ object MarketCommands {
         party.remove(PartyPosition(slot))
         val state = MarketState.get(server)
         state.addListing(listing)
+        com.shusheng.cobblemarket.event.MarketEvents.ADD.trigger(com.shusheng.cobblemarket.event.AddEvent(listing, fee))
 
         if (fee > 0) {
             source.sendFeedback(
@@ -234,15 +239,16 @@ object MarketCommands {
         state.addPendingBalance(listing.sellerUuid, price)
         listing.status = ListingStatus.SOLD
         state.markModified()
+        com.shusheng.cobblemarket.event.MarketEvents.PURCHASE.trigger(com.shusheng.cobblemarket.event.PurchaseEvent(player.uuid, player.name.string, listing.sellerUuid, listing, price))
 
         source.sendFeedback(
-            { Text.translatable("cobblemarket.cmd.bought", listing.species, price, currencyName()).formatted(Formatting.GREEN) },
+            { Text.translatable("cobblemarket.cmd.bought", listing.speciesText(), price, currencyName()).formatted(Formatting.GREEN) },
             false
         )
 
         val seller = server.playerManager.getPlayer(listing.sellerUuid)
         seller?.sendMessage(
-            Text.translatable("cobblemarket.cmd.sold", listing.species, price, currencyName()),
+            Text.translatable("cobblemarket.cmd.sold", listing.speciesText(), price, currencyName()),
             false
         )
 
@@ -279,9 +285,10 @@ object MarketCommands {
 
         listing.status = ListingStatus.CANCELLED
         state.markModified()
+        com.shusheng.cobblemarket.event.MarketEvents.CANCEL.trigger(com.shusheng.cobblemarket.event.CancelEvent(player.uuid, listing))
 
         source.sendFeedback(
-            { Text.translatable("cobblemarket.cmd.cancelled", listing.species).formatted(Formatting.YELLOW) },
+            { Text.translatable("cobblemarket.cmd.cancelled", listing.speciesText()).formatted(Formatting.YELLOW) },
             false
         )
         return 1
@@ -344,6 +351,34 @@ object MarketCommands {
     private fun openGui(context: CommandContext<ServerCommandSource>): Int {
         val player = context.source.playerOrThrow
         MarketNetwork.openScreen(player)
+        return 1
+    }
+
+    private fun history(context: CommandContext<ServerCommandSource>): Int {
+        val source = context.source
+        val player = source.playerOrThrow
+        val history = com.shusheng.cobblemarket.event.TransactionHistory.get(source.server)
+        val records = history.getRecordsBySeller(player.uuid).take(15)
+
+        if (records.isEmpty()) {
+            source.sendFeedback({ Text.translatable("cobblemarket.cmd.history_empty").formatted(Formatting.YELLOW) }, false)
+            return 0
+        }
+
+        source.sendFeedback({ Text.translatable("cobblemarket.cmd.history_header").formatted(Formatting.GOLD) }, false)
+        records.forEach { r ->
+            val typeName = when (r.type) {
+                com.shusheng.cobblemarket.event.TransactionType.ADD -> "上架"
+                com.shusheng.cobblemarket.event.TransactionType.PURCHASE -> "卖出"
+                com.shusheng.cobblemarket.event.TransactionType.CANCEL -> "下架"
+                com.shusheng.cobblemarket.event.TransactionType.RETURN -> "退还"
+            }
+            val buyer = if (r.buyerName.isNotEmpty()) " → ${r.buyerName}" else ""
+            val line = Text.literal("[$typeName] ")
+                .append(Text.translatable(r.species))
+                .append(" | ${r.price} ${currencyName()}$buyer")
+            source.sendFeedback({ line }, false)
+        }
         return 1
     }
 

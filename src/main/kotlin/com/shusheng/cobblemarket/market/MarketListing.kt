@@ -35,6 +35,9 @@ data class MarketListing(
 ) {
     fun isActive(): Boolean = status == ListingStatus.ACTIVE
 
+    fun speciesText(): net.minecraft.text.Text =
+        net.minecraft.text.Text.translatable(extraData["speciesKey"] ?: "cobblemon.species.${species.lowercase()}.name")
+
     fun toNbt(): NbtCompound = NbtCompound().apply {
         putUuid("id", id)
         putUuid("sellerUuid", sellerUuid)
