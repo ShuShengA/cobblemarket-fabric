@@ -24,7 +24,7 @@ import net.minecraft.text.Text
 import net.minecraft.util.Formatting
 import java.util.UUID
 
-private const val CURRENCY_NAME = "Diamonds"
+private fun currencyName() = com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyName()
 private const val LISTINGS_PER_PAGE = 10
 private const val LISTING_DURATION_DAYS = 7
 
@@ -166,7 +166,7 @@ object MarketCommands {
             val shortId = listing.id.toString().take(8)
             val shinyIcon = if (listing.shiny) " ☆" else ""
             source.sendFeedback(
-                { Text.literal("$shortId | ${listing.species}$shinyIcon Lv.${listing.level} | ${listing.price} $CURRENCY_NAME | by ${listing.sellerName}") },
+                { Text.literal("$shortId | ${listing.species}$shinyIcon Lv.${listing.level} | ${listing.price} ${currencyName()} | by ${listing.sellerName}") },
                 false
             )
         }
@@ -191,7 +191,7 @@ object MarketCommands {
         }
 
         val price = listing.price
-        if (!removeItems(player, Items.DIAMOND, price)) {
+        if (!removeItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), price)) {
             source.sendFeedback(
                 { Text.translatable("cobblemarket.cmd.need_diamonds", price).formatted(Formatting.RED) },
                 false
@@ -205,7 +205,7 @@ object MarketCommands {
         val party = Cobblemon.storage.getParty(player)
         val added = party.add(pokemon)
         if (!added) {
-            giveItems(player, Items.DIAMOND, price)
+            giveItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), price)
             source.sendFeedback(
                 { Text.translatable("cobblemarket.cmd.party_full").formatted(Formatting.RED) },
                 false
@@ -287,7 +287,7 @@ object MarketCommands {
         myActive.forEach { listing ->
             val shortId = listing.id.toString().take(8)
             source.sendFeedback(
-                { Text.literal("$shortId | ${listing.species} Lv.${listing.level} | ${listing.price} $CURRENCY_NAME") },
+                { Text.literal("$shortId | ${listing.species} Lv.${listing.level} | ${listing.price} ${currencyName()}") },
                 false
             )
         }
@@ -305,7 +305,7 @@ object MarketCommands {
             return 0
         }
 
-        giveItems(player, Items.DIAMOND, amount)
+        giveItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), amount)
         source.sendFeedback(
             { Text.translatable("cobblemarket.cmd.collected", amount).formatted(Formatting.GREEN) },
             false

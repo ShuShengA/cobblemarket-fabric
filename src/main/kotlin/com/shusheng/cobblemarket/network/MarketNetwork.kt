@@ -286,7 +286,7 @@ object MarketNetwork {
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own").string))
                     return@execute
                 }
-                if (!removeDiamonds(player, listing.price)) {
+                if (!removeCurrency(player, listing.price)) {
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", listing.price).string))
                     return@execute
                 }
@@ -295,7 +295,7 @@ object MarketNetwork {
                 val pokemon = com.cobblemon.mod.common.pokemon.Pokemon().loadFromNBT(registryLookup, listing.pokemonNbt)
                 val party = Cobblemon.storage.getParty(player)
                 if (!party.add(pokemon)) {
-                    giveDiamonds(player, listing.price)
+                    giveCurrency(player, listing.price)
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_full").string))
                     return@execute
                 }
@@ -346,17 +346,18 @@ object MarketNetwork {
         ServerPlayNetworking.send(player, OpenMarketPayload(0))
     }
 
-    private fun removeDiamonds(player: ServerPlayerEntity, amount: Int): Boolean {
+    private fun removeCurrency(player: ServerPlayerEntity, amount: Int): Boolean {
+        val item = com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem()
         val inv = player.inventory
         var total = 0
         for (i in 0 until inv.size()) {
-            if (inv.getStack(i).isOf(Items.DIAMOND)) total += inv.getStack(i).count
+            if (inv.getStack(i).isOf(item)) total += inv.getStack(i).count
         }
         if (total < amount) return false
         var remaining = amount
         for (i in 0 until inv.size()) {
             val stack = inv.getStack(i)
-            if (stack.isOf(Items.DIAMOND)) {
+            if (stack.isOf(item)) {
                 val r = minOf(remaining, stack.count)
                 stack.decrement(r)
                 remaining -= r
@@ -366,8 +367,8 @@ object MarketNetwork {
         return true
     }
 
-    private fun giveDiamonds(player: ServerPlayerEntity, amount: Int) {
-        val stack = ItemStack(Items.DIAMOND, amount)
+    private fun giveCurrency(player: ServerPlayerEntity, amount: Int) {
+        val stack = ItemStack(com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), amount)
         if (!player.inventory.insertStack(stack)) {
             player.dropItem(stack, false)
         }

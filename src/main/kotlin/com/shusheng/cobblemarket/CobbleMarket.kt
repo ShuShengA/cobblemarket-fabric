@@ -17,6 +17,7 @@ object CobbleMarket : ModInitializer {
 
 	override fun onInitialize() {
 		LOGGER.info("CobbleMarket initializing...")
+		com.shusheng.cobblemarket.config.CobbleMarketConfig.load()
 		MarketNetwork.register()
 		MarketCommands.register()
 
@@ -37,7 +38,7 @@ object CobbleMarket : ModInitializer {
 
 				val balance = state.claimPendingBalance(player.uuid)
 				if (balance > 0) {
-					val stack = net.minecraft.item.ItemStack(net.minecraft.item.Items.DIAMOND, balance)
+					val stack = net.minecraft.item.ItemStack(com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), balance)
 					if (!player.inventory.insertStack(stack)) {
 						player.dropItem(stack, false)
 					}
