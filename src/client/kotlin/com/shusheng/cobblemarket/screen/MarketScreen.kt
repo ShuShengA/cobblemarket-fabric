@@ -129,7 +129,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         // Row 5 (y=126): Shiny + Sort + Mine + Reset
         shinyButton = ButtonWidget.builder(
-            Text.literal(if (shinyOnly) "★ 闪光" else "☆ 闪光"),
+            Text.translatable(if (shinyOnly) "cobblemarket.gui.shiny_on" else "cobblemarket.gui.shiny_off"),
             { toggleShiny() }
         ).dimensions(leftX + 4, 126, 95, 20).build()
         addDrawableChild(shinyButton)
@@ -141,7 +141,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         addDrawableChild(sortButton)
 
         mineButton = ButtonWidget.builder(
-            Text.literal(if (showMineOnly) "[我的]" else "我的"),
+            Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine"),
             { toggleMineOnly() }
         ).dimensions(leftX + 202, 126, 55, 20).build()
         addDrawableChild(mineButton)
@@ -172,27 +172,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private fun createIvField(x: Int, y: Int, placeholder: String): TextFieldWidget {
         val field = TextFieldWidget(textRenderer, x, y, 95, 16, Text.literal(""))
         field.setPlaceholder(Text.literal(placeholder))
-        field.setTextPredicate { it.all { c -> c.isDigit() } && it.length <= 2 }
-        field.setChangedListener {
-            parseIvFields()
-            currentPage = 1
-            refreshData()
-        }
+        field.setTextPredicate { it.length <= 2 && it.all { c -> c.isDigit() } }
         addSelectableChild(field)
         addDrawableChild(field)
         return field
-    }
-
-    private fun parseIvFields() {
-        val fields = arrayOf(hpField, atkField, defField, spaField, spdField, speField)
-        for (i in 0..5) {
-            val raw = fields[i]?.text?.toIntOrNull() ?: 0
-            val clamped = raw.coerceIn(0, 31)
-            minIvs[i] = clamped
-            if (raw != clamped) {
-                fields[i]?.text = if (clamped == 0) "" else clamped.toString()
-            }
-        }
     }
 
     private fun rebuildBuyButtons() {
@@ -226,34 +209,15 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         return listings.withIndex().filter { it.value.sellerUuid == playerUuid }
     }
 
-    private fun refreshData() {
-        parseIvFields()
-        ClientPlayNetworking.send(
-            RequestMarketPayload(
-                speciesFilter = searchField?.text ?: "",
-                shinyOnly = shinyOnly,
-                minLevel = 0,
-                maxLevel = 100,
-                sortMode = sortMode,
-                page = currentPage,
-                genderFilter = genderFilter,
-                typeFilter = typeFilter,
-                minIvsHp = minIvs[0],
-                minIvsAtk = minIvs[1],
-                minIvsDef = minIvs[2],
-                minIvsSpAtk = minIvs[3],
-                minIvsSpDef = minIvs[4],
-                minIvsSpd = minIvs[5]
-            )
-        )
-    }
-
     // ── Gender filter ──
 
-    private fun genderButtonText(): Text = when (genderFilter) {
-        "MALE" -> Text.literal("性别: 公")
-        "FEMALE" -> Text.literal("性别: 母")
-        else -> Text.literal("性别: 不限")
+    private fun genderButtonText(): Text {
+        val label = when (genderFilter) {
+            "MALE" -> Text.translatable("cobblemarket.gui.filter_male")
+            "FEMALE" -> Text.translatable("cobblemarket.gui.filter_female")
+            else -> Text.translatable("cobblemarket.gui.filter_any")
+        }
+        return Text.translatable("cobblemarket.gui.gender").append(": ").append(label)
     }
 
     private fun cycleGender() {
@@ -271,12 +235,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     // ── Type filter ──
 
     private fun typeButtonText(): Text {
-        val (key, _) = typeOptions.getOrElse(typeFilterIndex) { "" to "不限" }
-        return if (key.isEmpty()) {
-            Text.literal("类型: 不限")
-        } else {
-            Text.literal("类型: ").append(Text.translatable("cobblemon.type.$key"))
-        }
+        val (key, _) = typeOptions.getOrElse(typeFilterIndex) { "" to "" }
+        val label = if (key.isEmpty()) Text.translatable("cobblemarket.gui.filter_any")
+            else Text.translatable("cobblemon.type.$key")
+        return Text.translatable("cobblemarket.gui.type").append(": ").append(label)
     }
 
     private fun cycleType() {
@@ -293,8 +255,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private fun toggleShiny() {
         shinyOnly = !shinyOnly
         currentPage = 1
-        shinyButton.message = Text.literal(if (shinyOnly) "★ 闪光" else "☆ 闪光")
-        mineButton.message = Text.literal(if (showMineOnly) "[我的]" else "我的")
+        shinyButton.message = Text.translatable(if (shinyOnly) "cobblemarket.gui.shiny_on" else "cobblemarket.gui.shiny_off")
+        mineButton.message = Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine")
         refreshData()
     }
 
@@ -327,7 +289,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     private fun toggleMineOnly() {
         showMineOnly = !showMineOnly
-        mineButton.message = Text.literal(if (showMineOnly) "[我的]" else "我的")
+        mineButton.message = Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine")
         currentPage = 1
     }
 
@@ -373,6 +335,57 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     }
 
     // ── Render ──
+
+    private fun isIvFieldFocused() = focused?.let { f ->
+        f === hpField || f === atkField || f === defField || f === spaField || f === spdField || f === speField
+    } ?: false
+
+    override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
+        val wasIv = isIvFieldFocused()
+        val result = super.mouseClicked(mouseX, mouseY, button)
+        if (wasIv) {
+            // Clicked elsewhere, commit the IV filter
+            focused = null
+            syncIvFromFields()
+        }
+        return result
+    }
+
+    private fun syncIvFromFields() {
+        val fields = arrayOf(hpField, atkField, defField, spaField, spdField, speField)
+        val ivs = IntArray(6)
+        for (i in 0..5) {
+            val raw = fields[i]?.text ?: ""
+            val digits = raw.filter { it.isDigit() }.take(2)
+            val value = digits.toIntOrNull()?.coerceIn(0, 31) ?: 0
+            if (digits != raw) fields[i]?.text = if (value == 0) "" else value.toString()
+            ivs[i] = value
+            minIvs[i] = value
+        }
+        currentPage = 1
+        refreshData(ivs)
+    }
+
+    private fun refreshData(ivs: IntArray = minIvs) {
+        ClientPlayNetworking.send(
+            RequestMarketPayload(
+                speciesFilter = searchField?.text ?: "",
+                shinyOnly = shinyOnly,
+                minLevel = 0,
+                maxLevel = 100,
+                sortMode = sortMode,
+                page = currentPage,
+                genderFilter = genderFilter,
+                typeFilter = typeFilter,
+                minIvsHp = ivs[0],
+                minIvsAtk = ivs[1],
+                minIvsDef = ivs[2],
+                minIvsSpAtk = ivs[3],
+                minIvsSpDef = ivs[4],
+                minIvsSpd = ivs[5]
+            )
+        )
+    }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         super.render(context, mouseX, mouseY, delta)
@@ -548,23 +561,25 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val spd = Text.translatable("cobblemon.stat.special_defence.name").string
         val spe = Text.translatable("cobblemon.stat.speed.name").string
 
+        val w = 0xFFFFFF
+        val ivColors = intArrayOf(0x66FF66, 0xFF6666, 0xFFCC66, 0x6699FF, 0x66FF99, 0xFF99FF)
         val lines = listOf(
-            "${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}",
-            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}",
-            "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}",
-            "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}",
-            "  $hp:${entry.ivsHp}",
-            "  $atk:${entry.ivsAtk}",
-            "  $def:${entry.ivsDef}",
-            "  $spa:${entry.ivsSpAtk}",
-            "  $spd:${entry.ivsSpDef}",
-            "  $spe:${entry.ivsSpd}",
-            "${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}",
-            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} Diamonds"
+            "${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w,
+            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}" to w,
+            "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w,
+            "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w,
+            "  $hp:${entry.ivsHp}" to ivColors[0],
+            "  $atk:${entry.ivsAtk}" to ivColors[1],
+            "  $def:${entry.ivsDef}" to ivColors[2],
+            "  $spa:${entry.ivsSpAtk}" to ivColors[3],
+            "  $spd:${entry.ivsSpDef}" to ivColors[4],
+            "  $spe:${entry.ivsSpd}" to ivColors[5],
+            "${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w,
+            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} Diamonds" to w
         )
 
         var maxWidth = 0
-        lines.forEach { maxWidth = maxOf(maxWidth, textRenderer.getWidth(it)) }
+        lines.forEach { maxWidth = maxOf(maxWidth, textRenderer.getWidth(it.first)) }
 
         val padding = 4
         val tx = minOf(mouseX + 12, width - maxWidth - 12)
@@ -575,8 +590,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         context.matrices.push()
         context.matrices.translate(0.0, 0.0, 400.0)
         context.fill(tx - padding, ty - padding, tx + maxWidth + padding, ty + lines.size * 10 + padding, 0xFF000000.toInt())
-        lines.forEachIndexed { i, line ->
-            context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, 0xFFFFFF)
+        lines.forEachIndexed { i, (line, color) ->
+            context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
         }
         context.matrices.pop()
     }

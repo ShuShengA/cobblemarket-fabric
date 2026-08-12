@@ -58,7 +58,7 @@ class MarketState private constructor() : PersistentState() {
         gender?.let { g -> results = results.filter { it.extraData["gender"]?.equals(g, ignoreCase = true) == true } }
         typeFilter?.let { t -> results = results.filter { it.extraData["primaryType"]?.contains(t, ignoreCase = true) == true } }
         minIvs.forEach { (statName, value) ->
-            results = results.filter { (it.extraData[statName]?.toIntOrNull() ?: 0) >= value }
+            results = results.filter { (it.extraData[statName]?.toIntOrNull() ?: 0) == value }
         }
         return when (sortBy) {
             SortMode.PRICE_ASC -> results.sortedBy { it.price }
