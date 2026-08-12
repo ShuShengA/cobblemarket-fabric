@@ -32,13 +32,15 @@ data class ListingEntry(
     val price: Int,
     val sellerName: String,
     val primaryType: String,
+    val secondaryType: String,
     val ivsHp: Int, val ivsAtk: Int, val ivsDef: Int,
     val ivsSpAtk: Int, val ivsSpDef: Int, val ivsSpd: Int,
     val nature: String,
     val ability: String,
     val gender: String,
     val ball: String,
-    val ballItem: String
+    val ballItem: String,
+    val currencyName: String
 ) {
     fun write(buf: PacketByteBuf) {
         buf.writeUuid(id)
@@ -50,6 +52,7 @@ data class ListingEntry(
         buf.writeInt(price)
         buf.writeString(sellerName)
         buf.writeString(primaryType)
+        buf.writeString(secondaryType)
         buf.writeInt(ivsHp); buf.writeInt(ivsAtk); buf.writeInt(ivsDef)
         buf.writeInt(ivsSpAtk); buf.writeInt(ivsSpDef); buf.writeInt(ivsSpd)
         buf.writeString(nature)
@@ -57,6 +60,7 @@ data class ListingEntry(
         buf.writeString(gender)
         buf.writeString(ball)
         buf.writeString(ballItem)
+        buf.writeString(currencyName)
     }
 
     companion object {
@@ -70,13 +74,15 @@ data class ListingEntry(
             price = buf.readInt(),
             sellerName = buf.readString(),
             primaryType = buf.readString(),
+            secondaryType = buf.readString(),
             ivsHp = buf.readInt(), ivsAtk = buf.readInt(), ivsDef = buf.readInt(),
             ivsSpAtk = buf.readInt(), ivsSpDef = buf.readInt(), ivsSpd = buf.readInt(),
             nature = buf.readString(),
             ability = buf.readString(),
             gender = buf.readString(),
             ball = buf.readString(),
-            ballItem = buf.readString()
+            ballItem = buf.readString(),
+            currencyName = buf.readString()
         )
     }
 }
@@ -227,12 +233,12 @@ object MarketNetwork {
                 gender = payload.genderFilter.ifBlank { null },
                 typeFilter = payload.typeFilter.ifBlank { null },
                 minIvs = buildMap {
-                    if (payload.minIvsHp > 0) put("ivsHp", payload.minIvsHp)
-                    if (payload.minIvsAtk > 0) put("ivsAtk", payload.minIvsAtk)
-                    if (payload.minIvsDef > 0) put("ivsDef", payload.minIvsDef)
-                    if (payload.minIvsSpAtk > 0) put("ivsSpAtk", payload.minIvsSpAtk)
-                    if (payload.minIvsSpDef > 0) put("ivsSpDef", payload.minIvsSpDef)
-                    if (payload.minIvsSpd > 0) put("ivsSpd", payload.minIvsSpd)
+                    if (payload.minIvsHp >= 0) put("ivsHp", payload.minIvsHp)
+                    if (payload.minIvsAtk >= 0) put("ivsAtk", payload.minIvsAtk)
+                    if (payload.minIvsDef >= 0) put("ivsDef", payload.minIvsDef)
+                    if (payload.minIvsSpAtk >= 0) put("ivsSpAtk", payload.minIvsSpAtk)
+                    if (payload.minIvsSpDef >= 0) put("ivsSpDef", payload.minIvsSpDef)
+                    if (payload.minIvsSpd >= 0) put("ivsSpd", payload.minIvsSpd)
                 }
             )
 
@@ -253,6 +259,7 @@ object MarketNetwork {
                         price = listing.price,
                         sellerName = listing.sellerName,
                         primaryType = detail["primaryType"] ?: "normal",
+                        secondaryType = detail["secondaryType"] ?: "",
                         ivsHp = detail["ivsHp"]?.toIntOrNull() ?: 0,
                         ivsAtk = detail["ivsAtk"]?.toIntOrNull() ?: 0,
                         ivsDef = detail["ivsDef"]?.toIntOrNull() ?: 0,
@@ -263,7 +270,8 @@ object MarketNetwork {
                         ability = detail["ability"] ?: "?",
                         gender = detail["gender"] ?: "?",
                         ball = detail["ball"] ?: "?",
-                        ballItem = detail["ballItem"] ?: "cobblemon:poke_ball"
+                        ballItem = detail["ballItem"] ?: "cobblemon:poke_ball",
+                        currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
                     )
                 }
             }
@@ -287,7 +295,7 @@ object MarketNetwork {
                     return@execute
                 }
                 if (!removeCurrency(player, listing.price)) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", listing.price).string))
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName()).string))
                     return@execute
                 }
 
@@ -304,7 +312,7 @@ object MarketNetwork {
                 listing.status = ListingStatus.SOLD
                 state.markModified()
 
-                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.network.bought", listing.species, listing.price).string))
+                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.network.bought", listing.species, listing.price, com.shusheng.cobblemarket.config.CurrencyHandler.getName()).string))
 
                 val seller = server.playerManager.getPlayer(listing.sellerUuid)
                 seller?.sendMessage(Text.translatable("cobblemarket.network.sold", listing.species), false)
@@ -346,31 +354,9 @@ object MarketNetwork {
         ServerPlayNetworking.send(player, OpenMarketPayload(0))
     }
 
-    private fun removeCurrency(player: ServerPlayerEntity, amount: Int): Boolean {
-        val item = com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem()
-        val inv = player.inventory
-        var total = 0
-        for (i in 0 until inv.size()) {
-            if (inv.getStack(i).isOf(item)) total += inv.getStack(i).count
-        }
-        if (total < amount) return false
-        var remaining = amount
-        for (i in 0 until inv.size()) {
-            val stack = inv.getStack(i)
-            if (stack.isOf(item)) {
-                val r = minOf(remaining, stack.count)
-                stack.decrement(r)
-                remaining -= r
-                if (remaining <= 0) break
-            }
-        }
-        return true
-    }
+    private fun removeCurrency(player: ServerPlayerEntity, amount: Int) =
+        com.shusheng.cobblemarket.config.CurrencyHandler.remove(player, amount)
 
-    private fun giveCurrency(player: ServerPlayerEntity, amount: Int) {
-        val stack = ItemStack(com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), amount)
-        if (!player.inventory.insertStack(stack)) {
-            player.dropItem(stack, false)
-        }
-    }
+    private fun giveCurrency(player: ServerPlayerEntity, amount: Int) =
+        com.shusheng.cobblemarket.config.CurrencyHandler.give(player, amount)
 }

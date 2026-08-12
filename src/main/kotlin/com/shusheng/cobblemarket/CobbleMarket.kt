@@ -38,12 +38,9 @@ object CobbleMarket : ModInitializer {
 
 				val balance = state.claimPendingBalance(player.uuid)
 				if (balance > 0) {
-					val stack = net.minecraft.item.ItemStack(com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), balance)
-					if (!player.inventory.insertStack(stack)) {
-						player.dropItem(stack, false)
-					}
+					com.shusheng.cobblemarket.config.CurrencyHandler.give(player, balance)
 					player.sendMessage(
-						Text.translatable("cobblemarket.cmd.login_earnings", balance)
+						Text.translatable("cobblemarket.cmd.login_earnings", balance, com.shusheng.cobblemarket.config.CurrencyHandler.getName())
 							.formatted(Formatting.GREEN),
 						false
 					)

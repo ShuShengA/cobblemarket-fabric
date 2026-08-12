@@ -47,6 +47,7 @@ dependencies {
     modImplementation "net.fabricmc:fabric-language-kotlin:${project.fabric_kotlin_version}"
 	modImplementation files("libs/Cobblemon-fabric-1.7.3+1.21.1.jar")
 	modLocalRuntime files("libs/Cobblemon-fabric-1.7.3+1.21.1.jar")
+	modCompileOnly files("libs/CobbleDollars-fabric-2.0.0+Beta-5.1+1.21.1.jar")
 }
 
 processResources {

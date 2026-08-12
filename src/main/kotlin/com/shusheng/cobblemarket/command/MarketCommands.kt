@@ -24,7 +24,7 @@ import net.minecraft.text.Text
 import net.minecraft.util.Formatting
 import java.util.UUID
 
-private fun currencyName() = com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyName()
+private fun currencyName() = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
 private const val LISTINGS_PER_PAGE = 10
 private const val LISTING_DURATION_DAYS = 7
 
@@ -96,6 +96,7 @@ object MarketCommands {
             "speciesId" to pokemon.species.resourceIdentifier.toString(),
             "speciesName" to pokemon.species.translatedName.string,
             "primaryType" to "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
+            "secondaryType" to (pokemon.secondaryType?.name?.lowercase()?.let { "cobblemon.type.$it" } ?: ""),
             "ivsHp" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.HP].toString(),
             "ivsAtk" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.ATTACK].toString(),
             "ivsDef" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.DEFENCE].toString(),
@@ -124,14 +125,31 @@ object MarketCommands {
             extraData = extra
         )
 
+        val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.listingFeePercent
+        val fee = if (feePercent > 0) Math.ceil(price * feePercent / 100.0).toInt() else 0
+        if (fee > 0 && !com.shusheng.cobblemarket.config.CurrencyHandler.remove(player, fee)) {
+            source.sendFeedback(
+                { Text.translatable("cobblemarket.cmd.need_fee", fee, currencyName()).formatted(Formatting.RED) },
+                false
+            )
+            return 0
+        }
+
         party.remove(PartyPosition(slot))
         val state = MarketState.get(server)
         state.addListing(listing)
 
-        source.sendFeedback(
-            { Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName.string, pokemon.level, price) },
-            false
-        )
+        if (fee > 0) {
+            source.sendFeedback(
+                { Text.translatable("cobblemarket.cmd.listed_fee", pokemon.species.translatedName.string, pokemon.level, price, currencyName(), fee, currencyName()) },
+                false
+            )
+        } else {
+            source.sendFeedback(
+                { Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName.string, pokemon.level, price, currencyName()) },
+                false
+            )
+        }
         return 1
     }
 
@@ -191,9 +209,9 @@ object MarketCommands {
         }
 
         val price = listing.price
-        if (!removeItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), price)) {
+        if (!com.shusheng.cobblemarket.config.CurrencyHandler.remove(player, price)) {
             source.sendFeedback(
-                { Text.translatable("cobblemarket.cmd.need_diamonds", price).formatted(Formatting.RED) },
+                { Text.translatable("cobblemarket.cmd.need_diamonds", price, currencyName()).formatted(Formatting.RED) },
                 false
             )
             return 0
@@ -205,7 +223,7 @@ object MarketCommands {
         val party = Cobblemon.storage.getParty(player)
         val added = party.add(pokemon)
         if (!added) {
-            giveItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), price)
+            com.shusheng.cobblemarket.config.CurrencyHandler.give(player,price)
             source.sendFeedback(
                 { Text.translatable("cobblemarket.cmd.party_full").formatted(Formatting.RED) },
                 false
@@ -218,13 +236,13 @@ object MarketCommands {
         state.markModified()
 
         source.sendFeedback(
-            { Text.translatable("cobblemarket.cmd.bought", listing.species, price).formatted(Formatting.GREEN) },
+            { Text.translatable("cobblemarket.cmd.bought", listing.species, price, currencyName()).formatted(Formatting.GREEN) },
             false
         )
 
         val seller = server.playerManager.getPlayer(listing.sellerUuid)
         seller?.sendMessage(
-            Text.translatable("cobblemarket.cmd.sold", listing.species, price),
+            Text.translatable("cobblemarket.cmd.sold", listing.species, price, currencyName()),
             false
         )
 
@@ -305,9 +323,9 @@ object MarketCommands {
             return 0
         }
 
-        giveItems(player, com.shusheng.cobblemarket.config.CobbleMarketConfig.getCurrencyItem(), amount)
+        com.shusheng.cobblemarket.config.CurrencyHandler.give(player,amount)
         source.sendFeedback(
-            { Text.translatable("cobblemarket.cmd.collected", amount).formatted(Formatting.GREEN) },
+            { Text.translatable("cobblemarket.cmd.collected", amount, currencyName()).formatted(Formatting.GREEN) },
             false
         )
         return 1
@@ -323,37 +341,10 @@ object MarketCommands {
         return state.getAllListings().find { it.id.toString().startsWith(input, ignoreCase = true) }
     }
 
-    private fun removeItems(player: ServerPlayerEntity, item: Item, amount: Int): Boolean {
-        val inventory = player.inventory
-        var total = 0
-        for (i in 0 until inventory.size()) {
-            if (inventory.getStack(i).isOf(item)) total += inventory.getStack(i).count
-        }
-        if (total < amount) return false
-
-        var remaining = amount
-        for (i in 0 until inventory.size()) {
-            val stack = inventory.getStack(i)
-            if (stack.isOf(item)) {
-                val toRemove = minOf(remaining, stack.count)
-                stack.decrement(toRemove)
-                remaining -= toRemove
-                if (remaining <= 0) break
-            }
-        }
-        return true
-    }
-
     private fun openGui(context: CommandContext<ServerCommandSource>): Int {
         val player = context.source.playerOrThrow
         MarketNetwork.openScreen(player)
         return 1
     }
 
-    private fun giveItems(player: ServerPlayerEntity, item: Item, amount: Int) {
-        val stack = ItemStack(item, amount)
-        if (!player.inventory.insertStack(stack)) {
-            player.dropItem(stack, false)
-        }
-    }
 }

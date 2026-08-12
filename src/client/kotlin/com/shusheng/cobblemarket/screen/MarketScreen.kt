@@ -26,11 +26,12 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private var searchField: TextFieldWidget? = null
     private var shinyOnly = false
     private var showMineOnly = false
+    private var filterExpanded = false
     private var sortMode = "PRICE_ASC"
     private var genderFilter = ""
     private var typeFilter = ""
     private var typeFilterIndex = 0
-    private val minIvs = IntArray(6)
+    private val minIvs = IntArray(6) { -1 }
 
     private lateinit var genderButton: ButtonWidget
     private lateinit var typeButton: ButtonWidget
@@ -38,6 +39,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private lateinit var sortButton: ButtonWidget
     private lateinit var resetButton: ButtonWidget
     private lateinit var mineButton: ButtonWidget
+    private lateinit var filterToggleButton: ButtonWidget
     private lateinit var prevButton: ButtonWidget
     private lateinit var nextButton: ButtonWidget
     private val buyButtons = mutableListOf<ButtonWidget>()
@@ -98,11 +100,21 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val leftX = centerX - panelWidth / 2
 
         // Row 1 (y=32): Search text field (full width)
-        searchField = TextFieldWidget(textRenderer, leftX + 2, 32, panelWidth - 4, 16, Text.translatable("cobblemarket.gui.search"))
+        searchField = TextFieldWidget(textRenderer, leftX + 2, 32, panelWidth - 4 - 52, 16, Text.translatable("cobblemarket.gui.search"))
         searchField?.setPlaceholder(Text.translatable("cobblemarket.gui.search_placeholder").formatted(Formatting.GRAY))
         // Search triggers on focus loss via mouseClicked
         addSelectableChild(searchField)
         addDrawableChild(searchField)
+
+        // Collapse/expand filters toggle (right of search field)
+        filterToggleButton = ButtonWidget.builder(
+            Text.literal(if (filterExpanded) "▲" else "▼"),
+            { toggleFilters() }
+        ).dimensions(leftX + panelWidth - 52, 32, 50, 16).build()
+        addDrawableChild(filterToggleButton)
+
+        // Filter controls only when expanded
+        if (filterExpanded) {
 
         // Row 2 (y=54): Gender button + Type button
         genderButton = ButtonWidget.builder(
@@ -152,6 +164,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         ).dimensions(leftX + 261, 126, 55, 20).build()
         addDrawableChild(resetButton)
 
+        } // end if (filterExpanded)
+
         // Page buttons at bottom
         prevButton = ButtonWidget.builder(
             Text.translatable("cobblemarket.gui.prev"),
@@ -167,6 +181,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         rebuildBuyButtons()
         refreshData()
+        applyFilterVisibility() // Apply current collapsed state
     }
 
     private fun createIvField(x: Int, y: Int, placeholder: String): TextFieldWidget {
@@ -178,17 +193,20 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         return field
     }
 
+    private fun getListStartY() = (if (filterExpanded) 148 else 52) + 4
+    private fun getMaxVisibleRows() = maxOf(3, (height - getListStartY() - 30) / 22)
+
     private fun rebuildBuyButtons() {
         buyButtons.forEach { remove(it) }
         buyButtons.clear()
 
         val centerX = width / 2
         val leftX = centerX - panelWidth / 2
-        val startY = 152
+        val startY = getListStartY()
         val rowHeight = 22
         val playerUuid = client?.player?.uuid
 
-        displayedListings().forEachIndexed { di, (origIndex, entry) ->
+        displayedListings().take(getMaxVisibleRows()).forEachIndexed { di, (origIndex, entry) ->
             val y = startY + di * rowHeight
             val isMine = playerUuid != null && entry.sellerUuid == playerUuid
             val label = if (isMine) Text.literal("✕") else Text.translatable("cobblemarket.gui.buy")
@@ -296,10 +314,24 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     // ── Reset all filters ──
 
+    private fun applyFilterVisibility() {
+        filterToggleButton.message = Text.literal(if (filterExpanded) "▲ 收起" else "▼ 筛选")
+    }
+
+    private fun toggleFilters() {
+        filterExpanded = !filterExpanded
+        applyFilterVisibility()
+        // Rebuild the screen to correctly show/hide filter controls
+        clearChildren()
+        init()
+        if (client != null) rebuildBuyButtons()
+    }
+
     private fun toggleMineOnly() {
         showMineOnly = !showMineOnly
         mineButton.message = Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine")
         currentPage = 1
+        rebuildBuyButtons()
     }
 
     private fun resetFilters() {
@@ -311,7 +343,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         typeFilterIndex = 0
         sortMode = "PRICE_ASC"
         currentPage = 1
-        for (i in 0..5) minIvs[i] = 0
+        for (i in 0..5) minIvs[i] = -1
         hpField?.text = ""
         atkField?.text = ""
         defField?.text = ""
@@ -367,10 +399,11 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         for (i in 0..5) {
             val raw = fields[i]?.text ?: ""
             val digits = raw.filter { it.isDigit() }.take(2)
-            val value = digits.toIntOrNull()?.coerceIn(0, 31) ?: 0
-            if (digits != raw) fields[i]?.text = if (value == 0) "" else value.toString()
-            ivs[i] = value
-            minIvs[i] = value
+            // -1 sentinel: field is empty/unset, skip filtering
+            // 0: user explicitly typed "0", filter for IV == 0
+            ivs[i] = if (digits.isEmpty()) -1 else digits.toIntOrNull()?.coerceIn(0, 31) ?: -1
+            if (digits != raw) fields[i]?.text = if (ivs[i] <= 0) "" else ivs[i].toString()
+            minIvs[i] = ivs[i]
         }
         currentPage = 1
         refreshData(ivs)
@@ -417,12 +450,13 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             centerX, 20, 0xFFFFFF
         )
 
-        // Divider at y=148
-        context.fill(leftX, 148, leftX + panelWidth, 149, 0xFF555555.toInt())
-
-        val startY = 152
+        val dividerY = getListStartY() - 4
+        val startY = getListStartY()
         val rowHeight = 22
-        val listAreaBottom = startY + 8 * rowHeight
+        val visibleRows = getMaxVisibleRows()
+        val listAreaBottom = startY + visibleRows * rowHeight
+
+        context.fill(leftX, dividerY, leftX + panelWidth, dividerY + 1, 0xFF555555.toInt())
 
         val displayList = displayedListings()
 
@@ -442,7 +476,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             )
         }
 
-        displayList.forEachIndexed { di, (origIndex, entry) ->
+        displayList.take(visibleRows).forEachIndexed { di, (origIndex, entry) ->
             val y = startY + di * rowHeight
 
             // Row background
@@ -575,7 +609,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val ivColors = intArrayOf(0x66FF66, 0xFF6666, 0xFFCC66, 0x6699FF, 0x66FF99, 0xFF99FF)
         val lines = listOf(
             "${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}" to w,
+            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}${if (entry.secondaryType.isNotEmpty()) " + ${Text.translatable(entry.secondaryType).string}" else ""}" to w,
             "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w,
             "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w,
             "  $hp:${entry.ivsHp}" to ivColors[0],
@@ -585,7 +619,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             "  $spd:${entry.ivsSpDef}" to ivColors[4],
             "  $spe:${entry.ivsSpd}" to ivColors[5],
             "${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} Diamonds" to w
+            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w
         )
 
         var maxWidth = 0
