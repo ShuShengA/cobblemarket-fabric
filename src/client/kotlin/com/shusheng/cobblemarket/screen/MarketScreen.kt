@@ -100,7 +100,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         // Row 1 (y=32): Search text field (full width)
         searchField = TextFieldWidget(textRenderer, leftX + 2, 32, panelWidth - 4, 16, Text.translatable("cobblemarket.gui.search"))
         searchField?.setPlaceholder(Text.translatable("cobblemarket.gui.search_placeholder").formatted(Formatting.GRAY))
-        searchField?.setChangedListener { refreshData() }
+        // Search triggers on focus loss via mouseClicked
         addSelectableChild(searchField)
         addDrawableChild(searchField)
 
@@ -205,8 +205,17 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     private fun displayedListings(): List<IndexedValue<ListingEntry>> {
         val playerUuid = client?.player?.uuid
-        if (!showMineOnly || playerUuid == null) return listings.withIndex().toList()
-        return listings.withIndex().filter { it.value.sellerUuid == playerUuid }
+        var result = listings.withIndex().toList()
+        if (showMineOnly && playerUuid != null) {
+            result = result.filter { it.value.sellerUuid == playerUuid }
+        }
+        // Client-side search: matches English name + translated name
+        val query = searchField?.text?.trim()?.takeIf { it.isNotEmpty() } ?: return result
+        result = result.filter { (origIndex, entry) ->
+            entry.species.contains(query, ignoreCase = true) ||
+            (iconData[origIndex]?.displayName?.contains(query, ignoreCase = true) == true)
+        }
+        return result
     }
 
     // ── Gender filter ──
@@ -336,17 +345,18 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     // ── Render ──
 
-    private fun isIvFieldFocused() = focused?.let { f ->
-        f === hpField || f === atkField || f === defField || f === spaField || f === spdField || f === speField
+    private fun isInputFieldFocused() = focused?.let { f ->
+        f === searchField || f === hpField || f === atkField || f === defField || f === spaField || f === spdField || f === speField
     } ?: false
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
-        val wasIv = isIvFieldFocused()
+        val wasInInput = isInputFieldFocused()
         val result = super.mouseClicked(mouseX, mouseY, button)
-        if (wasIv) {
-            // Clicked elsewhere, commit the IV filter
+        if (wasInInput) {
             focused = null
             syncIvFromFields()
+            currentPage = 1
+            refreshData()
         }
         return result
     }
@@ -369,7 +379,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private fun refreshData(ivs: IntArray = minIvs) {
         ClientPlayNetworking.send(
             RequestMarketPayload(
-                speciesFilter = searchField?.text ?: "",
+                speciesFilter = "",  // Searching is client-side via displayedListings()
                 shinyOnly = shinyOnly,
                 minLevel = 0,
                 maxLevel = 100,
