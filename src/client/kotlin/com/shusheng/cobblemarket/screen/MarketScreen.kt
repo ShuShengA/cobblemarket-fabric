@@ -5,6 +5,7 @@ import com.cobblemon.mod.common.client.gui.drawProfilePokemon
 import com.cobblemon.mod.common.client.render.models.blockbench.FloatingState
 import com.cobblemon.mod.common.pokemon.RenderablePokemon
 import com.shusheng.cobblemarket.network.*
+import com.shusheng.cobblemarket.screen.SellSelectScreen
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
 import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.Screen
@@ -100,7 +101,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val leftX = centerX - panelWidth / 2
 
         // Row 1 (y=32): Search text field (full width)
-        searchField = TextFieldWidget(textRenderer, leftX + 2, 32, panelWidth - 4 - 52, 16, Text.translatable("cobblemarket.gui.search"))
+        searchField = TextFieldWidget(textRenderer, leftX + 2, 32, panelWidth - 4 - 52 - 20, 16, Text.translatable("cobblemarket.gui.search"))
         searchField?.setPlaceholder(Text.translatable("cobblemarket.gui.search_placeholder").formatted(Formatting.GRAY))
         // Search triggers on focus loss via mouseClicked
         addSelectableChild(searchField)
@@ -112,6 +113,16 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             { toggleFilters() }
         ).dimensions(leftX + panelWidth - 52, 32, 50, 16).build()
         addDrawableChild(filterToggleButton)
+
+        // Sell button (right of search, left of filter toggle)
+        addDrawableChild(ButtonWidget.builder(
+            Text.literal("+"), { openSellScreen() }
+        ).dimensions(leftX + panelWidth - 72, 32, 18, 16).build())
+
+        // Collect balance button (top-left)
+        addDrawableChild(ButtonWidget.builder(
+            Text.translatable("cobblemarket.gui.collect"), { collectBalance() }
+        ).dimensions(leftX, 6, 50, 16).build())
 
         // Filter controls only when expanded
         if (filterExpanded) {
@@ -213,7 +224,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             val action = if (isMine)
                 ButtonWidget.PressAction { requestCancel(entry.id) }
             else
-                ButtonWidget.PressAction { requestBuy(entry.id) }
+                ButtonWidget.PressAction { client?.setScreen(BuyConfirmScreen(entry)) }
             val btn = ButtonWidget.builder(label, action)
                 .dimensions(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2).build()
             buyButtons.add(btn)
@@ -371,8 +382,16 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         ClientPlayNetworking.send(BuyFromMarketPayload(listingId))
     }
 
+    private fun openSellScreen() {
+        client?.setScreen(SellSelectScreen())
+    }
+
     private fun requestCancel(listingId: java.util.UUID) {
         ClientPlayNetworking.send(CancelFromMarketPayload(listingId))
+    }
+
+    private fun collectBalance() {
+        ClientPlayNetworking.send(CollectBalancePayload())
     }
 
     // ── Render ──
@@ -442,6 +461,11 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             Text.translatable("cobblemarket.gui.title").formatted(Formatting.GOLD),
             centerX, 8, 0xFFFFFF
         )
+
+        // Pending balance (right of collect button)
+        context.drawTextWithShadow(textRenderer,
+            Text.translatable("cobblemarket.gui.pending_balance", pendingBalance).string,
+            leftX + 56, 10, 0x55FF55)
 
         // Page indicator
         context.drawCenteredTextWithShadow(
@@ -660,10 +684,13 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         searchField?.text = oldSearch
     }
 
+    private var pendingBalance = 0
+
     fun onMarketData(payload: MarketDataPayload) {
         listings = payload.entries
         totalPages = payload.totalPages
         currentPage = payload.currentPage
+        pendingBalance = payload.pendingBalance
         cacheIcons()
         rebuildBuyButtons()
     }

@@ -2,6 +2,7 @@ package com.shusheng.cobblemarket.network
 
 import com.cobblemon.mod.common.Cobblemon
 import com.cobblemon.mod.common.api.storage.party.PartyPosition
+import com.shusheng.cobblemarket.config.CurrencyHandler
 import com.shusheng.cobblemarket.CobbleMarket
 import com.shusheng.cobblemarket.market.ListingStatus
 import com.shusheng.cobblemarket.market.MarketListing
@@ -121,7 +122,8 @@ data class RequestMarketPayload(
 data class MarketDataPayload(
     val entries: List<ListingEntry>,
     val totalPages: Int,
-    val currentPage: Int
+    val currentPage: Int,
+    val pendingBalance: Int
 ) : CustomPayload {
     override fun getId(): CustomPayload.Id<out CustomPayload> = ID
 
@@ -133,11 +135,12 @@ data class MarketDataPayload(
                 p.entries.forEach { it.write(b) }
                 b.writeInt(p.totalPages)
                 b.writeInt(p.currentPage)
+                b.writeInt(p.pendingBalance)
             },
             { b ->
                 val size = b.readVarInt()
                 val entries = (0 until size).map { ListingEntry.read(b) }
-                MarketDataPayload(entries, b.readInt(), b.readInt())
+                MarketDataPayload(entries, b.readInt(), b.readInt(), b.readInt())
             }
         )
     }
@@ -202,6 +205,97 @@ data class OpenMarketPayload(val dummy: Int) : CustomPayload {
     }
 }
 
+// ── Pokemon preview for sell selection ──
+
+data class PokemonPreview(
+    val uuid: UUID,
+    val species: String,
+    val speciesId: String,
+    val level: Int,
+    val shiny: Boolean,
+    val gender: String,
+    val nature: String,
+    val ability: String,
+    val ivsHp: Int, val ivsAtk: Int, val ivsDef: Int, val ivsSpAtk: Int, val ivsSpDef: Int, val ivsSpd: Int,
+    val ball: String,
+    val primaryType: String,
+    val secondaryType: String,
+    val source: String, // "party" or "pc"
+    val slot: Int
+) {
+    fun write(buf: PacketByteBuf) {
+        buf.writeUuid(uuid); buf.writeString(species); buf.writeString(speciesId)
+        buf.writeInt(level); buf.writeBoolean(shiny); buf.writeString(gender)
+        buf.writeString(nature); buf.writeString(ability)
+        buf.writeInt(ivsHp); buf.writeInt(ivsAtk); buf.writeInt(ivsDef)
+        buf.writeInt(ivsSpAtk); buf.writeInt(ivsSpDef); buf.writeInt(ivsSpd)
+        buf.writeString(ball); buf.writeString(primaryType); buf.writeString(secondaryType)
+        buf.writeString(source); buf.writeInt(slot)
+    }
+    companion object {
+        fun read(buf: PacketByteBuf) = PokemonPreview(
+            buf.readUuid(), buf.readString(), buf.readString(),
+            buf.readInt(), buf.readBoolean(), buf.readString(),
+            buf.readString(), buf.readString(),
+            buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(),
+            buf.readString(), buf.readString(), buf.readString(),
+            buf.readString(), buf.readInt()
+        )
+    }
+}
+
+// ── C2S: Request my Pokémon list ──
+
+class RequestMyPokemonPayload : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<RequestMyPokemonPayload>(CobbleMarket.id("request_my_pokemon"))
+        val CODEC: PacketCodec<PacketByteBuf, RequestMyPokemonPayload> = PacketCodec.of(
+            { _, b -> b.writeInt(0) },
+            { b -> b.readInt(); RequestMyPokemonPayload() }
+        )
+    }
+}
+
+// ── S2C: My Pokémon list response ──
+
+data class MyPokemonListPayload(val pokemon: List<PokemonPreview>) : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<MyPokemonListPayload>(CobbleMarket.id("my_pokemon_list"))
+        val CODEC: PacketCodec<PacketByteBuf, MyPokemonListPayload> = PacketCodec.of(
+            { p, b -> b.writeVarInt(p.pokemon.size); p.pokemon.forEach { it.write(b) } },
+            { b -> MyPokemonListPayload((0 until b.readVarInt()).map { PokemonPreview.read(b) }) }
+        )
+    }
+}
+
+// ── C2S: Collect pending balance ──
+
+class CollectBalancePayload : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<CollectBalancePayload>(CobbleMarket.id("collect_balance"))
+        val CODEC: PacketCodec<PacketByteBuf, CollectBalancePayload> = PacketCodec.of(
+            { _, b -> b.writeInt(0) },
+            { b -> b.readInt(); CollectBalancePayload() }
+        )
+    }
+}
+
+// ── C2S: Sell from storage ──
+
+data class SellFromStoragePayload(val pokemonUuid: UUID, val price: Int) : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<SellFromStoragePayload>(CobbleMarket.id("sell_from_storage"))
+        val CODEC: PacketCodec<PacketByteBuf, SellFromStoragePayload> = PacketCodec.of(
+            { p, b -> b.writeUuid(p.pokemonUuid); b.writeInt(p.price) },
+            { b -> SellFromStoragePayload(b.readUuid(), b.readInt()) }
+        )
+    }
+}
+
 // ── Registration ──
 
 private const val LISTINGS_PER_PAGE = 10
@@ -213,6 +307,10 @@ object MarketNetwork {
         PayloadTypeRegistry.playC2S().register(RequestMarketPayload.ID, RequestMarketPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(BuyFromMarketPayload.ID, BuyFromMarketPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(CancelFromMarketPayload.ID, CancelFromMarketPayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(RequestMyPokemonPayload.ID, RequestMyPokemonPayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(SellFromStoragePayload.ID, SellFromStoragePayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(CollectBalancePayload.ID, CollectBalancePayload.CODEC)
+        PayloadTypeRegistry.playS2C().register(MyPokemonListPayload.ID, MyPokemonListPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(OpenMarketPayload.ID, OpenMarketPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MarketDataPayload.ID, MarketDataPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MarketResultPayload.ID, MarketResultPayload.CODEC)
@@ -276,7 +374,7 @@ object MarketNetwork {
                 }
             }
 
-            ServerPlayNetworking.send(player, MarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage))
+            ServerPlayNetworking.send(player, MarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage, state.getPendingBalance(player.uuid)))
         }
 
         ServerPlayNetworking.registerGlobalReceiver(BuyFromMarketPayload.ID) { payload, context ->
@@ -348,7 +446,155 @@ object MarketNetwork {
                 ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.cancelled", listing.species).string))
             }
         }
+
+        ServerPlayNetworking.registerGlobalReceiver(RequestMyPokemonPayload.ID) { _, context ->
+            val player = context.player()
+            val server = player.server
+            server.execute {
+                val previews = mutableListOf<PokemonPreview>()
+                val party = Cobblemon.storage.getParty(player)
+                for (i in 0..5) {
+                    try {
+                        val p = party.get(PartyPosition(i)) ?: continue
+                        previews.add(toPreview(p, "party", i))
+                    } catch (_: Exception) {}
+                }
+                try {
+                    val pc = Cobblemon.storage.getPC(player)
+                    // PC is iterable; limit to first 30 to avoid huge packets
+                    val world = player.serverWorld
+                    var count = 0
+                    val iter = pc.iterator()
+                    while (iter.hasNext() && count < 30) {
+                        try {
+                            val p = iter.next()
+                            previews.add(toPreview(p, "pc", count))
+                            count++
+                        } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+                ServerPlayNetworking.send(player, MyPokemonListPayload(previews))
+            }
+        }
+
+        ServerPlayNetworking.registerGlobalReceiver(SellFromStoragePayload.ID) { payload, context ->
+            val player = context.player()
+            val server = player.server
+            server.execute {
+                // Listing fee check
+                val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.listingFeePercent
+                val fee = if (feePercent > 0) Math.ceil(payload.price * feePercent / 100.0).toInt() else 0
+                if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false,
+                        Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName()).string))
+                    return@execute
+                }
+
+                val party = Cobblemon.storage.getParty(player)
+                val pc = Cobblemon.storage.getPC(player)
+                val pokemonUuid = payload.pokemonUuid
+
+                // Find in party first
+                var pokemon = party.find { it.uuid == pokemonUuid }
+                if (pokemon != null) {
+                    party.remove(pokemon)
+                } else {
+                    // Find in PC
+                    pokemon = pc.find { it.uuid == pokemonUuid }
+                    if (pokemon != null) {
+                        pc.remove(pokemon)
+                    }
+                }
+                if (pokemon == null) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found").string))
+                    return@execute
+                }
+
+                val world = player.serverWorld
+                val nbt = pokemon.saveToNBT(world.registryManager, NbtCompound())
+                val now = System.currentTimeMillis()
+
+                val extra = mutableMapOf(
+                    "speciesId" to pokemon.species.resourceIdentifier.toString(),
+                    "speciesName" to pokemon.species.translatedName.string,
+                    "primaryType" to "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
+                    "ivsHp" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.HP].toString(),
+                    "ivsAtk" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.ATTACK].toString(),
+                    "ivsDef" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.DEFENCE].toString(),
+                    "ivsSpAtk" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPECIAL_ATTACK].toString(),
+                    "ivsSpDef" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPECIAL_DEFENCE].toString(),
+                    "ivsSpd" to pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPEED].toString(),
+                    "nature" to "cobblemon.nature.${pokemon.effectiveNature.name.path}",
+                    "ability" to "cobblemon.ability.${pokemon.ability.name}",
+                    "gender" to pokemon.gender.name,
+                    "ball" to "item.cobblemon.${pokemon.caughtBall.name.path}",
+                    "ballItem" to "cobblemon:${pokemon.caughtBall.name.path}"
+                )
+                pokemon.secondaryType?.let { extra["secondaryType"] = "cobblemon.type.${it.name.lowercase()}" }
+
+                val listing = MarketListing(
+                    id = UUID.randomUUID(),
+                    sellerUuid = player.uuid,
+                    sellerName = player.name.string,
+                    pokemonNbt = nbt,
+                    species = pokemon.species.name,
+                    level = pokemon.level,
+                    shiny = pokemon.shiny,
+                    price = payload.price,
+                    createdAt = now,
+                    expiresAt = now + 7 * 24 * 60 * 60 * 1000L,
+                    status = ListingStatus.ACTIVE,
+                    extraData = extra
+                )
+
+                val state = MarketState.get(server)
+                state.addListing(listing)
+
+                val listedMsg = if (fee > 0)
+                    Text.translatable("cobblemarket.cmd.listed_fee", pokemon.species.translatedName.string, pokemon.level, payload.price, CurrencyHandler.getName(), fee, CurrencyHandler.getName()).string
+                else
+                    Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName.string, pokemon.level, payload.price, CurrencyHandler.getName()).string
+                ServerPlayNetworking.send(player, MarketResultPayload(true, listedMsg))
+            }
+        }
+
+        ServerPlayNetworking.registerGlobalReceiver(CollectBalancePayload.ID) { _, context ->
+            val player = context.player()
+            val server = player.server
+            server.execute {
+                val state = MarketState.get(server)
+                val amount = state.claimPendingBalance(player.uuid)
+                if (amount <= 0) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.cmd.no_earnings").string))
+                    return@execute
+                }
+                CurrencyHandler.give(player, amount)
+                ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.cmd.collected", amount, CurrencyHandler.getName()).string))
+            }
+        }
     }
+
+    private fun toPreview(pokemon: com.cobblemon.mod.common.pokemon.Pokemon, source: String, slot: Int) = PokemonPreview(
+        uuid = pokemon.uuid,
+        species = pokemon.species.translatedName.string,
+        speciesId = pokemon.species.resourceIdentifier.toString(),
+        level = pokemon.level,
+        shiny = pokemon.shiny,
+        gender = pokemon.gender.name,
+        nature = "cobblemon.nature.${pokemon.effectiveNature.name.path}",
+        ability = "cobblemon.ability.${pokemon.ability.name}",
+        ivsHp = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.HP] ?: 0,
+        ivsAtk = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.ATTACK] ?: 0,
+        ivsDef = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.DEFENCE] ?: 0,
+        ivsSpAtk = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPECIAL_ATTACK] ?: 0,
+        ivsSpDef = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPECIAL_DEFENCE] ?: 0,
+        ivsSpd = pokemon.ivs[com.cobblemon.mod.common.api.pokemon.stats.Stats.SPEED] ?: 0,
+        ball = "item.cobblemon.${pokemon.caughtBall.name.path}",
+        primaryType = "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
+        secondaryType = pokemon.secondaryType?.let { "cobblemon.type.${it.name.lowercase()}" } ?: "",
+        source = source,
+        slot = slot
+    )
 
     fun openScreen(player: ServerPlayerEntity) {
         ServerPlayNetworking.send(player, OpenMarketPayload(0))

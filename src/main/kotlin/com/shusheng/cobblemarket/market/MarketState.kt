@@ -114,6 +114,8 @@ class MarketState private constructor() : PersistentState() {
         markDirty()
     }
 
+    fun getPendingBalance(playerUuid: UUID): Int = pendingBalances[playerUuid] ?: 0
+
     fun claimPendingBalance(playerUuid: UUID): Int {
         val amount = pendingBalances.remove(playerUuid) ?: 0
         if (amount > 0) markDirty()
