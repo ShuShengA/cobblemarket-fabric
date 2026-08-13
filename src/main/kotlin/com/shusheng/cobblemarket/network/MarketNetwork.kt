@@ -585,6 +585,10 @@ class ClaimItemReturnPayload : CustomPayload {
 
 private const val LISTING_DURATION_DAYS = 7
 
+private fun parseSortMode(name: String): com.shusheng.cobblemarket.market.SortMode =
+    com.shusheng.cobblemarket.market.SortMode.entries.firstOrNull { it.name == name }
+        ?: com.shusheng.cobblemarket.market.SortMode.PRICE_ASC
+
 internal fun canFitInInventory(player: ServerPlayerEntity, stack: ItemStack): Boolean {
     var remaining = stack.count
     val main = player.inventory.main
@@ -641,7 +645,7 @@ object MarketNetwork {
             val state = MarketState.get(server)
             state.expireOldListings(System.currentTimeMillis())
 
-            val sortMode = com.shusheng.cobblemarket.market.SortMode.valueOf(payload.sortMode)
+            val sortMode = parseSortMode(payload.sortMode)
             val results = state.search(
                 species = payload.speciesFilter.ifBlank { null },
                 shiny = if (payload.shinyOnly) true else null,
@@ -696,7 +700,7 @@ object MarketNetwork {
                 }
             }
 
-            ServerPlayNetworking.send(player, MarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage, state.getPendingBalance(player.uuid)))
+            ServerPlayNetworking.send(player, MarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage, minOf(state.getPendingBalance(player.uuid), Int.MAX_VALUE.toLong()).toInt()))
         }
 
         ServerPlayNetworking.registerGlobalReceiver(BuyFromMarketPayload.ID) { payload, context ->
@@ -778,7 +782,7 @@ object MarketNetwork {
             val state = MarketState.get(server)
             state.expireOldListings(System.currentTimeMillis())
 
-            val sortMode = com.shusheng.cobblemarket.market.SortMode.valueOf(payload.sortMode)
+            val sortMode = parseSortMode(payload.sortMode)
             val results = state.search(
                 species = payload.speciesFilter.ifBlank { null },
                 shiny = if (payload.shinyOnly) true else null,
@@ -858,7 +862,7 @@ object MarketNetwork {
             val state = ItemMarketState.get(server)
             state.expireOldListings(System.currentTimeMillis())
 
-            val sortMode = com.shusheng.cobblemarket.market.SortMode.valueOf(payload.sortMode)
+            val sortMode = parseSortMode(payload.sortMode)
             val results = state.search(
                 sortBy = sortMode,
                 sellerUuid = if (payload.mineOnly) player.uuid else null,
@@ -954,9 +958,20 @@ object MarketNetwork {
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
                     return@execute
                 }
+                if (payload.price <= 0) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.invalid_price")))
+                    return@execute
+                }
                 // 队伍至少要留一只精灵
                 if (fromParty && party.occupied() <= 1) {
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_last")))
+                    return@execute
+                }
+
+                // 上架数量上限检查
+                val maxPokemonListings = com.shusheng.cobblemarket.config.CobbleMarketConfig.maxPokemonListingsPerPlayer
+                if (maxPokemonListings > 0 && MarketState.get(server).countActiveBySeller(player.uuid) >= maxPokemonListings) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.cmd.max_listings", maxPokemonListings)))
                     return@execute
                 }
 
@@ -1039,10 +1054,10 @@ object MarketNetwork {
 
                 // 重建目标物品，按物品+组件匹配
                 val targetStack = ItemStack.fromNbtOrEmpty(player.serverWorld.registryManager, payload.itemNbt)
-                val inv = player.inventory
+                val main = player.inventory.main
                 var available = 0
-                for (i in 0 until inv.size()) {
-                    val stack = inv.getStack(i)
+                for (i in 0 until main.size) {
+                    val stack = main[i]
                     if (ItemStack.areItemsAndComponentsEqual(stack, targetStack)) available += stack.count
                 }
                 if (available < payload.count) {
@@ -1050,9 +1065,16 @@ object MarketNetwork {
                     return@execute
                 }
 
+                // 上架数量上限检查
+                val maxItemListings = com.shusheng.cobblemarket.config.CobbleMarketConfig.maxItemListingsPerPlayer
+                if (maxItemListings > 0 && ItemMarketState.get(server).countActiveBySeller(player.uuid) >= maxItemListings) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.cmd.max_listings", maxItemListings)))
+                    return@execute
+                }
+
                 // 手续费（基于总价）
                 val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.itemListingFeePercent
-                val totalPrice = payload.price * payload.count
+                val totalPrice = payload.price.toLong() * payload.count
                 val fee = if (feePercent > 0) Math.ceil(totalPrice * feePercent / 100.0).toInt() else 0
                 if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
                     ServerPlayNetworking.send(player, MarketResultPayload(false,
@@ -1060,11 +1082,15 @@ object MarketNetwork {
                     return@execute
                 }
 
-                // 扣物品
+                // 扣物品，并捕获真实物品 NBT（不信任客户端 NBT）
                 var remaining = payload.count
-                for (i in 0 until inv.size()) {
-                    val stack = inv.getStack(i)
+                var listingNbt: NbtCompound? = null
+                for (i in 0 until main.size) {
+                    val stack = main[i]
                     if (ItemStack.areItemsAndComponentsEqual(stack, targetStack)) {
+                        if (listingNbt == null) {
+                            listingNbt = stack.encode(player.serverWorld.registryManager) as? NbtCompound
+                        }
                         val r = minOf(remaining, stack.count)
                         stack.decrement(r)
                         remaining -= r
@@ -1081,7 +1107,7 @@ object MarketNetwork {
                     sellerUuid = player.uuid,
                     sellerName = player.name.string,
                     itemId = payload.itemId,
-                    itemNbt = payload.itemNbt,
+                    itemNbt = listingNbt ?: payload.itemNbt,
                     count = payload.count,
                     price = payload.price,
                     createdAt = now,
@@ -1121,7 +1147,7 @@ object MarketNetwork {
             val state = ItemMarketState.get(server)
             state.expireOldListings(System.currentTimeMillis())
 
-            val sortMode = com.shusheng.cobblemarket.market.SortMode.valueOf(payload.sortMode)
+            val sortMode = parseSortMode(payload.sortMode)
             val results = state.search(
                 sortBy = sortMode,
                 sellerUuid = if (payload.mineOnly) player.uuid else null
@@ -1147,7 +1173,7 @@ object MarketNetwork {
                 }
             }
 
-            ServerPlayNetworking.send(player, ItemMarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage, MarketState.get(server).getPendingBalance(player.uuid)))
+            ServerPlayNetworking.send(player, ItemMarketDataPayload(pageEntries, maxOf(1, totalPages), clampedPage, minOf(MarketState.get(server).getPendingBalance(player.uuid), Int.MAX_VALUE.toLong()).toInt()))
         }
 
         ServerPlayNetworking.registerGlobalReceiver(BuyItemPayload.ID) { payload, context ->
@@ -1177,14 +1203,33 @@ object MarketNetwork {
                     return@execute
                 }
 
-                val totalPrice = listing.price * count
+                val totalPriceLong = listing.price.toLong() * count
+                if (totalPriceLong <= 0 || totalPriceLong > Int.MAX_VALUE) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.invalid_price")))
+                    return@execute
+                }
+                val totalPrice = totalPriceLong.toInt()
                 if (!CurrencyHandler.remove(player, totalPrice)) {
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.need_diamonds", totalPrice, CurrencyHandler.getName())))
                     return@execute
                 }
 
                 if (!player.inventory.insertStack(stack)) {
-                    CurrencyHandler.give(player, totalPrice)
+                    // insertStack 非原子，可能已塞入部分物品；回滚已插入部分，避免复制。
+                    val inserted = count - stack.count
+                    if (inserted > 0) {
+                        var toRemove = inserted
+                        for (i in 0 until player.inventory.main.size) {
+                            val slot = player.inventory.main[i]
+                            if (ItemStack.areItemsAndComponentsEqual(slot, stack)) {
+                                val r = minOf(toRemove, slot.count)
+                                slot.decrement(r)
+                                toRemove -= r
+                                if (toRemove <= 0) break
+                            }
+                        }
+                    }
+                    CurrencyHandler.give(player, totalPrice.toLong())
                     ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.inventory_full")))
                     return@execute
                 }
@@ -1212,6 +1257,10 @@ object MarketNetwork {
                 )
 
                 ServerPlayNetworking.send(player, MarketResultPayload(true, Text.translatable("cobblemarket.item.bought", count, listing.itemId, totalPrice, CurrencyHandler.getName())))
+
+                val seller = server.playerManager.getPlayer(listing.sellerUuid)
+                val soldItemName = Identifier.tryParse(listing.itemId)?.let { Registries.ITEM.get(it).name } ?: Text.literal(listing.itemId)
+                seller?.sendMessage(Text.translatable("cobblemarket.network.sold", soldItemName), false)
             }
         }
 
@@ -1388,5 +1437,5 @@ object MarketNetwork {
         com.shusheng.cobblemarket.config.CurrencyHandler.remove(player, amount)
 
     private fun giveCurrency(player: ServerPlayerEntity, amount: Int) =
-        com.shusheng.cobblemarket.config.CurrencyHandler.give(player, amount)
+        com.shusheng.cobblemarket.config.CurrencyHandler.give(player, amount.toLong())
 }

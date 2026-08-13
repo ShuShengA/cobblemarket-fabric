@@ -11,6 +11,8 @@ import com.shusheng.cobblemarket.network.OpenMarketPayload
 import com.shusheng.cobblemarket.network.PokemonReturnDataPayload
 import com.shusheng.cobblemarket.screen.AdminItemScreen
 import com.shusheng.cobblemarket.screen.AdminPokemonScreen
+import com.shusheng.cobblemarket.screen.AdminScreen
+import com.shusheng.cobblemarket.screen.BuyConfirmScreen
 import com.shusheng.cobblemarket.screen.HistoryScreen
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import com.shusheng.cobblemarket.screen.MarketScreen
@@ -52,7 +54,10 @@ object CobbleMarketClient : ClientModInitializer {
             val ePressed = InputUtil.isKeyPressed(client.window.handle, GLFW.GLFW_KEY_E)
             if (ePressed && !wasEPressed) {
                 val screen = client.currentScreen
-                if (screen is MarketScreen || screen is SellSelectScreen || screen is HistoryScreen || screen is MarketEntryScreen) {
+                if (screen is MarketScreen || screen is SellSelectScreen || screen is HistoryScreen || screen is MarketEntryScreen ||
+                    screen is ItemMarketScreen || screen is ItemSellScreen || screen is ItemReturnScreen || screen is PokemonReturnScreen ||
+                    screen is BuyConfirmScreen || screen is AdminScreen || screen is AdminPokemonScreen || screen is AdminItemScreen
+                ) {
                     client.setScreen(null)
                 }
             }

@@ -39,9 +39,8 @@ object CobbleMarket : ModInitializer {
 			val stateServer = player.server
 
 			stateServer.execute {
-				val balance = state.claimPendingBalance(player.uuid)
+				val balance = state.getPendingBalance(player.uuid)
 				if (balance > 0) {
-					com.shusheng.cobblemarket.config.CurrencyHandler.give(player, balance)
 					player.sendMessage(
 						Text.translatable("cobblemarket.cmd.login_earnings", balance, com.shusheng.cobblemarket.config.CurrencyHandler.getName())
 							.formatted(Formatting.GREEN),

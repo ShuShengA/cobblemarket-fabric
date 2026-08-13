@@ -13,7 +13,7 @@ import java.util.UUID
 class MarketState private constructor() : PersistentState() {
 
     private val listings = mutableMapOf<UUID, MarketListing>()
-    private val pendingBalances = mutableMapOf<UUID, Int>()
+    private val pendingBalances = mutableMapOf<UUID, Long>()
     private val pendingReturns = mutableMapOf<UUID, MutableList<MarketListing>>()
 
     fun addListing(listing: MarketListing) {
@@ -130,15 +130,15 @@ class MarketState private constructor() : PersistentState() {
     fun markModified() = markDirty()
 
     fun addPendingBalance(playerUuid: UUID, amount: Int) {
-        pendingBalances[playerUuid] = (pendingBalances[playerUuid] ?: 0) + amount
+        pendingBalances[playerUuid] = (pendingBalances[playerUuid] ?: 0L) + amount
         markDirty()
     }
 
-    fun getPendingBalance(playerUuid: UUID): Int = pendingBalances[playerUuid] ?: 0
+    fun getPendingBalance(playerUuid: UUID): Long = pendingBalances[playerUuid] ?: 0L
 
-    fun claimPendingBalance(playerUuid: UUID): Int {
-        val amount = pendingBalances.remove(playerUuid) ?: 0
-        if (amount > 0) markDirty()
+    fun claimPendingBalance(playerUuid: UUID): Long {
+        val amount = pendingBalances.remove(playerUuid) ?: 0L
+        if (amount > 0L) markDirty()
         return amount
     }
 
@@ -148,7 +148,7 @@ class MarketState private constructor() : PersistentState() {
         nbt.put("listings", list)
 
         val balances = NbtCompound()
-        pendingBalances.forEach { (uuid, amount) -> balances.putInt(uuid.toString(), amount) }
+        pendingBalances.forEach { (uuid, amount) -> balances.putLong(uuid.toString(), amount) }
         nbt.put("pendingBalances", balances)
 
         val returns = NbtCompound()
@@ -172,7 +172,7 @@ class MarketState private constructor() : PersistentState() {
                     }
                     val balances = nbt.getCompound("pendingBalances")
                     balances.keys.forEach { key ->
-                        pendingBalances[UUID.fromString(key)] = balances.getInt(key)
+                        pendingBalances[UUID.fromString(key)] = balances.getLong(key)
                     }
                     val returns = nbt.getCompound("pendingReturns")
                     returns.keys.forEach { key ->
