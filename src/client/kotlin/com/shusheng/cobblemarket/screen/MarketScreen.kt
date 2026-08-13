@@ -56,6 +56,11 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private val panelWidth = 296
     private val iconSize = 20
 
+    private var confirmEntry: ListingEntry? = null
+    private var confirmRenderable: RenderablePokemon? = null
+    private var confirmDisplayName = ""
+    private val confirmState = FloatingState()
+
     private val typeOptions = listOf(
         "" to "不限",
         "normal" to "一般",
@@ -241,11 +246,39 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             val action = if (isMine)
                 ButtonWidget.PressAction { requestCancel(entry.id) }
             else
-                ButtonWidget.PressAction { client?.setScreen(BuyConfirmScreen(entry)) }
+                ButtonWidget.PressAction { openConfirmDialog(entry) }
             val btn = NineSliceButton(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2, label, action)
             buyButtons.add(btn)
             addDrawableChild(btn)
         }
+    }
+
+    private fun openConfirmDialog(entry: ListingEntry) {
+        confirmEntry = entry
+        confirmRenderable = null
+        confirmDisplayName = ""
+        val id = Identifier.tryParse(entry.speciesId)
+        if (id != null) {
+            val species = PokemonSpecies.getByIdentifier(id)
+            if (species != null) {
+                val aspects = mutableSetOf<String>()
+                if (entry.shiny) aspects.add("shiny")
+                confirmRenderable = RenderablePokemon(species, aspects, ItemStack.EMPTY)
+                confirmDisplayName = species.translatedName.string
+            }
+        }
+    }
+
+    private fun closeConfirmDialog() {
+        confirmEntry = null
+        confirmRenderable = null
+        confirmDisplayName = ""
+    }
+
+    private fun confirmPurchase() {
+        val entry = confirmEntry ?: return
+        ClientPlayNetworking.send(BuyFromMarketPayload(entry.id))
+        closeConfirmDialog()
     }
 
     private fun displayedListings(): List<IndexedValue<ListingEntry>> {
@@ -417,6 +450,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     } ?: false
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
+        if (confirmEntry != null) {
+            handleConfirmDialogClick(mouseX.toInt(), mouseY.toInt())
+            return true
+        }
         val wasInInput = isInputFieldFocused()
         val result = super.mouseClicked(mouseX, mouseY, button)
         if (wasInInput) {
@@ -624,12 +661,128 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         }
 
         // Tooltip on hover
-        if (hoveredRow in displayList.indices) {
+        if (confirmEntry == null && hoveredRow in displayList.indices) {
             renderTooltip(context, displayList[hoveredRow].value, mouseX, mouseY)
         }
 
         prevButton.active = currentPage > 1
         nextButton.active = currentPage < totalPages
+
+        if (confirmEntry != null) {
+            renderConfirmDialog(context, mouseX, mouseY)
+        }
+    }
+
+    private fun renderConfirmDialog(context: DrawContext, mouseX: Int, mouseY: Int) {
+        val entry = confirmEntry ?: return
+        val centerX = width / 2
+        val dialogW = 220
+        val dialogH = 200
+        val dialogX = centerX - dialogW / 2
+        val dialogY = height / 2 - dialogH / 2
+
+        // 遮罩（提高 z，盖住底层列表）
+        context.matrices.push()
+        context.matrices.translate(0.0, 0.0, 100.0)
+        context.fill(0, 0, width, height, 0xC0000000.toInt())
+        context.matrices.pop()
+
+        // 弹窗背景（z 高于遮罩）
+        context.matrices.push()
+        context.matrices.translate(0.0, 0.0, 200.0)
+        drawNineSlice(context, DIALOG_BACKGROUND_TEXTURE, dialogX, dialogY, dialogW, dialogH, 0, DIALOG_BACKGROUND_TEX_H)
+
+        // 标题
+        context.drawCenteredTextWithShadow(textRenderer,
+            Text.translatable("cobblemarket.buy_confirm.title").formatted(Formatting.GOLD),
+            centerX, dialogY + 14, 0xFFFFFF)
+
+        // 精灵 3D 图标（槽背景 + 精灵，对齐列表图标渲染）
+        val iconSize = 28
+        val iconX = centerX - iconSize / 2
+        val iconY = dialogY + 28
+        val slotTexture = Identifier.of("cobblemarket", "textures/gui/pokemon_slot.png")
+        context.matrices.push()
+        context.matrices.translate(iconX.toDouble(), iconY.toDouble(), 0.0)
+        context.matrices.scale(iconSize / 66f, iconSize / 66f, 1f)
+        context.drawTexture(slotTexture, 0, 0, 0f, 0f, 66, 66, 66, 66)
+        context.matrices.pop()
+        confirmRenderable?.let { rp ->
+            val matrices = context.matrices
+            matrices.push()
+            matrices.translate((iconX + iconSize / 2).toDouble(), (iconY + 1).toDouble(), 0.0)
+            matrices.scale(iconSize / 25f * 2.5f, iconSize / 25f * 2.5f, 1f)
+            drawProfilePokemon(
+                renderablePokemon = rp, matrixStack = matrices,
+                rotation = Quaternionf().rotateXYZ(Math.toRadians(13.0).toFloat(), Math.toRadians(35.0).toFloat(), 0f),
+                state = confirmState, partialTicks = 0f, scale = 4.5f
+            )
+            matrices.pop()
+        }
+
+        // 信息
+        val lineH = 11
+        var infoY = dialogY + 62
+        val name = (if (confirmDisplayName.isNotEmpty()) confirmDisplayName else entry.species) + (if (entry.shiny) " ☆" else "")
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal(name).formatted(Formatting.WHITE), centerX, infoY, 0xFFFFFF)
+        infoY += lineH
+        context.drawCenteredTextWithShadow(textRenderer,
+            Text.translatable("cobblemarket.buy_confirm.level", entry.level), centerX, infoY, 0xAAAAAA)
+        infoY += lineH
+        val nature = Text.translatable("cobblemarket.gui.tooltip_nature").string + Text.translatable(entry.nature).string
+        val ability = Text.translatable("cobblemarket.gui.tooltip_ability").string + Text.translatable(entry.ability).string
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal("$nature  $ability"), centerX, infoY, 0xAAAAAA)
+        infoY += lineH
+        val hp = Text.translatable("cobblemon.stat.hp.name").string
+        val atk = Text.translatable("cobblemon.stat.attack.name").string
+        val def = Text.translatable("cobblemon.stat.defence.name").string
+        val spa = Text.translatable("cobblemon.stat.special_attack.name").string
+        val spd = Text.translatable("cobblemon.stat.special_defence.name").string
+        val spe = Text.translatable("cobblemon.stat.speed.name").string
+        listOf(
+            "$hp: ${entry.ivsHp}" to 0x66FF66,
+            "$atk: ${entry.ivsAtk}" to 0xFF6666,
+            "$spa: ${entry.ivsSpAtk}" to 0x6699FF,
+            "$def: ${entry.ivsDef}" to 0xFFCC66,
+            "$spd: ${entry.ivsSpDef}" to 0x66FF99,
+            "$spe: ${entry.ivsSpd}" to 0xFF99FF
+        ).forEach { (line, color) ->
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(line), centerX, infoY, color)
+            infoY += lineH
+        }
+        context.drawCenteredTextWithShadow(textRenderer,
+            Text.translatable("cobblemarket.buy_confirm.price", entry.price, entry.currencyName), centerX, infoY, 0x55FFFF)
+
+        // 按钮
+        val btnW = 80
+        val btnH = 20
+        val btnY = dialogY + dialogH - 30
+        val confirmX = centerX - btnW - 5
+        val cancelX = centerX + 5
+        val confirmHover = mouseX in confirmX..(confirmX + btnW) && mouseY in btnY..(btnY + btnH)
+        val cancelHover = mouseX in cancelX..(cancelX + btnW) && mouseY in btnY..(btnY + btnH)
+
+        drawNineSlice(context, BUTTON_TEXTURE, confirmX, btnY, btnW, btnH, if (confirmHover) 1 else 0, BUTTON_TEX_H)
+        drawNineSlice(context, BUTTON_TEXTURE, cancelX, btnY, btnW, btnH, if (cancelHover) 1 else 0, BUTTON_TEX_H)
+        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.buy_confirm.confirm"), confirmX + btnW / 2, btnY + (btnH - 8) / 2, 0xFFFFFF)
+        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.buy_confirm.cancel"), cancelX + btnW / 2, btnY + (btnH - 8) / 2, 0xFFFFFF)
+        context.matrices.pop()
+    }
+
+    private fun handleConfirmDialogClick(mx: Int, my: Int) {
+        val centerX = width / 2
+        val dialogH = 200
+        val dialogY = height / 2 - dialogH / 2
+        val btnW = 80
+        val btnH = 20
+        val btnY = dialogY + dialogH - 30
+        val confirmX = centerX - btnW - 5
+        val cancelX = centerX + 5
+        if (mx in confirmX..(confirmX + btnW) && my in btnY..(btnY + btnH)) {
+            confirmPurchase()
+        } else if (mx in cancelX..(cancelX + btnW) && my in btnY..(btnY + btnH)) {
+            closeConfirmDialog()
+        }
     }
 
     // ── 3D Pokemon icon rendering ──
