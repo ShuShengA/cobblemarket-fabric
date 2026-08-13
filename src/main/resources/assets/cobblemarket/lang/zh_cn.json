@@ -9,6 +9,7 @@
   "cobblemarket.history.title": "交易历史",
   "cobblemarket.history.all_title": "全部交易历史",
   "cobblemarket.history.back": "返回",
+  "cobblemarket.history.open_folder": "打开文件夹",
   "cobblemarket.history.empty": "暂无交易历史。",
   "cobblemarket.history.type.ADD": "上架",
   "cobblemarket.history.type.PURCHASE": "卖出",
@@ -90,6 +91,7 @@
   "cobblemarket.network.cannot_buy_own": "不能购买自己的上架！",
   "cobblemarket.network.need_diamonds": "需要 %d %s！",
   "cobblemarket.network.party_full": "队伍已满！",
+  "cobblemarket.network.party_last": "队伍至少要保留一只精灵！",
   "cobblemarket.network.bought": "你购买了 %s，花费 %d %s！",
   "cobblemarket.network.sold": "你的 %s 已卖出！用 /market collect 领取。",
 

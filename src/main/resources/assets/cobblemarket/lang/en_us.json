@@ -9,6 +9,7 @@
   "cobblemarket.history.title": "Transaction History",
   "cobblemarket.history.all_title": "All Transaction History",
   "cobblemarket.history.back": "Back",
+  "cobblemarket.history.open_folder": "Open Folder",
   "cobblemarket.history.empty": "No transaction history yet.",
   "cobblemarket.history.type.ADD": "Listed",
   "cobblemarket.history.type.PURCHASE": "Sold",
@@ -90,6 +91,7 @@
   "cobblemarket.network.cannot_buy_own": "You can't buy your own listing!",
   "cobblemarket.network.need_diamonds": "You need %d %s!",
   "cobblemarket.network.party_full": "Your party is full!",
+  "cobblemarket.network.party_last": "You must keep at least one Pokémon in your party!",
   "cobblemarket.network.bought": "You bought %s for %d %s!",
   "cobblemarket.network.sold": "Your %s was sold! Use /market collect.",
 

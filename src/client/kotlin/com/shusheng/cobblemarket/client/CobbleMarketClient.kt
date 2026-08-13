@@ -25,6 +25,7 @@ object CobbleMarketClient : ClientModInitializer {
     val LOGGER = LoggerFactory.getLogger(CobbleMarket.MOD_ID)
 
     private lateinit var openMarketKey: KeyBinding
+    private var wasEPressed = false
 
     override fun onInitializeClient() {
         openMarketKey = KeyBindingHelper.registerKeyBinding(
@@ -35,11 +36,18 @@ object CobbleMarketClient : ClientModInitializer {
                 "category.cobblemarket"
             )
         )
-
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             while (openMarketKey.wasPressed()) {
                 client.setScreen(MarketEntryScreen())
             }
+            val ePressed = InputUtil.isKeyPressed(client.window.handle, GLFW.GLFW_KEY_E)
+            if (ePressed && !wasEPressed) {
+                val screen = client.currentScreen
+                if (screen is MarketScreen || screen is SellSelectScreen || screen is HistoryScreen || screen is MarketEntryScreen) {
+                    client.setScreen(null)
+                }
+            }
+            wasEPressed = ePressed
         }
 
         ClientPlayNetworking.registerGlobalReceiver(OpenMarketPayload.ID) { _, _ ->

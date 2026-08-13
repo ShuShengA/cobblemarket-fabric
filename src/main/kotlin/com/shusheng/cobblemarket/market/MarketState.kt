@@ -44,7 +44,8 @@ class MarketState private constructor() : PersistentState() {
         sortBy: SortMode = SortMode.PRICE_ASC,
         gender: String? = null,
         typeFilter: String? = null,
-        minIvs: Map<String, Int> = emptyMap()
+        minIvs: Map<String, Int> = emptyMap(),
+        sellerUuid: UUID? = null
     ): List<MarketListing> {
         var results = getActiveListings()
         species?.let { s -> results = results.filter {
@@ -63,6 +64,7 @@ class MarketState private constructor() : PersistentState() {
         minIvs.forEach { (statName, value) ->
             results = results.filter { (it.extraData[statName]?.toIntOrNull() ?: 0) == value }
         }
+        sellerUuid?.let { u -> results = results.filter { it.sellerUuid == u } }
         return when (sortBy) {
             SortMode.PRICE_ASC -> results.sortedBy { it.price }
             SortMode.PRICE_DESC -> results.sortedByDescending { it.price }

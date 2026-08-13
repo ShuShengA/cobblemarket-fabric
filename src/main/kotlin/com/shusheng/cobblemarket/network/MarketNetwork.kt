@@ -105,15 +105,16 @@ data class RequestMarketPayload(
     val minIvsSpAtk: Int,
     val minIvsSpDef: Int,
     val minIvsSpd: Int,
-    val pageSize: Int
+    val pageSize: Int,
+    val mineOnly: Boolean
 ) : CustomPayload {
     override fun getId(): CustomPayload.Id<out CustomPayload> = ID
 
     companion object {
         val ID = CustomPayload.Id<RequestMarketPayload>(CobbleMarket.id("request_market"))
         val CODEC: PacketCodec<PacketByteBuf, RequestMarketPayload> = PacketCodec.of(
-            { p, b -> b.writeString(p.speciesFilter); b.writeBoolean(p.shinyOnly); b.writeInt(p.minLevel); b.writeInt(p.maxLevel); b.writeString(p.sortMode); b.writeInt(p.page); b.writeString(p.genderFilter); b.writeString(p.typeFilter); b.writeInt(p.minIvsHp); b.writeInt(p.minIvsAtk); b.writeInt(p.minIvsDef); b.writeInt(p.minIvsSpAtk); b.writeInt(p.minIvsSpDef); b.writeInt(p.minIvsSpd); b.writeInt(p.pageSize) },
-            { b -> RequestMarketPayload(b.readString(), b.readBoolean(), b.readInt(), b.readInt(), b.readString(), b.readInt(), b.readString(), b.readString(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt()) }
+            { p, b -> b.writeString(p.speciesFilter); b.writeBoolean(p.shinyOnly); b.writeInt(p.minLevel); b.writeInt(p.maxLevel); b.writeString(p.sortMode); b.writeInt(p.page); b.writeString(p.genderFilter); b.writeString(p.typeFilter); b.writeInt(p.minIvsHp); b.writeInt(p.minIvsAtk); b.writeInt(p.minIvsDef); b.writeInt(p.minIvsSpAtk); b.writeInt(p.minIvsSpDef); b.writeInt(p.minIvsSpd); b.writeInt(p.pageSize); b.writeBoolean(p.mineOnly) },
+            { b -> RequestMarketPayload(b.readString(), b.readBoolean(), b.readInt(), b.readInt(), b.readString(), b.readInt(), b.readString(), b.readString(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readInt(), b.readBoolean()) }
         )
     }
 }
@@ -289,6 +290,7 @@ class CollectBalancePayload : CustomPayload {
 
 data class HistoryEntry(
     val type: String,
+    val category: String,
     val species: String,
     val price: Int,
     val buyerName: String,
@@ -296,10 +298,10 @@ data class HistoryEntry(
     val timestamp: Long
 ) {
     fun write(buf: PacketByteBuf) {
-        buf.writeString(type); buf.writeString(species); buf.writeInt(price); buf.writeString(buyerName); buf.writeString(sellerName); buf.writeLong(timestamp)
+        buf.writeString(type); buf.writeString(category); buf.writeString(species); buf.writeInt(price); buf.writeString(buyerName); buf.writeString(sellerName); buf.writeLong(timestamp)
     }
     companion object {
-        fun read(buf: PacketByteBuf) = HistoryEntry(buf.readString(), buf.readString(), buf.readInt(), buf.readString(), buf.readString(), buf.readLong())
+        fun read(buf: PacketByteBuf) = HistoryEntry(buf.readString(), buf.readString(), buf.readString(), buf.readInt(), buf.readString(), buf.readString(), buf.readLong())
     }
 }
 
@@ -380,7 +382,8 @@ object MarketNetwork {
                     if (payload.minIvsSpAtk >= 0) put("ivsSpAtk", payload.minIvsSpAtk)
                     if (payload.minIvsSpDef >= 0) put("ivsSpDef", payload.minIvsSpDef)
                     if (payload.minIvsSpd >= 0) put("ivsSpd", payload.minIvsSpd)
-                }
+                },
+                sellerUuid = if (payload.mineOnly) player.uuid else null
             )
 
             val pageSize = payload.pageSize.coerceIn(1, 30)
@@ -527,6 +530,26 @@ object MarketNetwork {
             val player = context.player()
             val server = player.server
             server.execute {
+                val party = Cobblemon.storage.getParty(player)
+                val pc = Cobblemon.storage.getPC(player)
+                val pokemonUuid = payload.pokemonUuid
+
+                // Find in party first
+                var pokemon = party.find { it.uuid == pokemonUuid }
+                val fromParty = pokemon != null
+                if (pokemon == null) {
+                    pokemon = pc.find { it.uuid == pokemonUuid }
+                }
+                if (pokemon == null) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
+                    return@execute
+                }
+                // 队伍至少要留一只精灵
+                if (fromParty && party.occupied() <= 1) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.party_last")))
+                    return@execute
+                }
+
                 // Listing fee check
                 val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.listingFeePercent
                 val fee = if (feePercent > 0) Math.ceil(payload.price * feePercent / 100.0).toInt() else 0
@@ -536,25 +559,8 @@ object MarketNetwork {
                     return@execute
                 }
 
-                val party = Cobblemon.storage.getParty(player)
-                val pc = Cobblemon.storage.getPC(player)
-                val pokemonUuid = payload.pokemonUuid
-
-                // Find in party first
-                var pokemon = party.find { it.uuid == pokemonUuid }
-                if (pokemon != null) {
-                    party.remove(pokemon)
-                } else {
-                    // Find in PC
-                    pokemon = pc.find { it.uuid == pokemonUuid }
-                    if (pokemon != null) {
-                        pc.remove(pokemon)
-                    }
-                }
-                if (pokemon == null) {
-                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
-                    return@execute
-                }
+                // 移除精灵
+                if (fromParty) party.remove(pokemon) else pc.remove(pokemon)
 
                 val world = player.serverWorld
                 val nbt = pokemon.saveToNBT(world.registryManager, NbtCompound())
@@ -629,7 +635,7 @@ object MarketNetwork {
                 val isAdmin = player.hasPermissionLevel(2)
                 val records = if (payload.all && isAdmin) history.getRecords() else history.getRecordsBySeller(player.uuid)
                 val entries = records.take(50).map { r ->
-                    HistoryEntry(r.type.name, r.species, r.price, r.buyerName, r.sellerName, r.timestamp)
+                    HistoryEntry(r.type.name, r.category.name, r.species, r.price, r.buyerName, r.sellerName, r.timestamp)
                 }
                 ServerPlayNetworking.send(player, HistoryDataPayload(entries))
             }

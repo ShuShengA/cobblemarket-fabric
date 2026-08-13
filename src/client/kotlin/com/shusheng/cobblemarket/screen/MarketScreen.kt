@@ -197,16 +197,19 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         } // end if (filterExpanded)
 
-        // Page buttons at bottom
+        // Page buttons at bottom（动态贴在列表最后一行下方）
+        val listBottom = getListStartY() + getMaxVisibleRows() * 24
+        val btnY = listBottom
+
         prevButton = NineSliceButton(
-            leftX, height - 28, 80, 20,
+            leftX, btnY, 80, 20,
             Text.translatable("cobblemarket.gui.prev"),
             { prevPage() }
         )
         addDrawableChild(prevButton)
 
         nextButton = NineSliceButton(
-            leftX + panelWidth - 80, height - 28, 80, 20,
+            leftX + panelWidth - 80, btnY, 80, 20,
             Text.translatable("cobblemarket.gui.next"),
             { nextPage() }
         )
@@ -282,11 +285,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     }
 
     private fun displayedListings(): List<IndexedValue<ListingEntry>> {
-        val playerUuid = client?.player?.uuid
         var result = listings.withIndex().toList()
-        if (showMineOnly && playerUuid != null) {
-            result = result.filter { it.value.sellerUuid == playerUuid }
-        }
         // Client-side search: matches English name + translated name
         val query = searchField?.text?.trim()?.takeIf { it.isNotEmpty() } ?: return result
         result = result.filter { (origIndex, entry) ->
@@ -391,7 +390,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         showMineOnly = !showMineOnly
         mineButton.message = Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine")
         currentPage = 1
-        rebuildBuyButtons()
+        refreshData()
     }
 
     private fun resetFilters() {
@@ -495,7 +494,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                 minIvsSpAtk = ivs[3],
                 minIvsSpDef = ivs[4],
                 minIvsSpd = ivs[5],
-                pageSize = getMaxVisibleRows()
+                pageSize = getMaxVisibleRows(),
+                mineOnly = showMineOnly
             )
         )
     }
@@ -872,7 +872,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         context.matrices.push()
         context.matrices.translate(0.0, 0.0, 400.0)
-        context.fill(tx - padding, ty - padding, tx + maxWidth + padding, ty + lines.size * 10 + padding, 0xFF000000.toInt())
+        drawNineSlice(context, ROW_BACKGROUND_TEXTURE, tx - padding, ty - padding, maxWidth + 2 * padding, lines.size * 10 + 2 * padding, 1, ROW_BACKGROUND_TEX_H)
         lines.forEachIndexed { i, (line, color) ->
             context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
         }

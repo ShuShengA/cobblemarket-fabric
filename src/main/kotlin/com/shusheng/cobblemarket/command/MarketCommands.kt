@@ -89,6 +89,13 @@ object MarketCommands {
             )
             return 0
         }
+        if (party.occupied() <= 1) {
+            source.sendFeedback(
+                { Text.translatable("cobblemarket.network.party_last").formatted(Formatting.RED) },
+                false
+            )
+            return 0
+        }
 
         val world = source.world
         val nbt = pokemon.saveToNBT(world.registryManager, NbtCompound())
