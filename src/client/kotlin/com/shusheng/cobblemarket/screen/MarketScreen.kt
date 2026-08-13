@@ -28,7 +28,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private var shinyOnly = false
     private var showMineOnly = false
     private var filterExpanded = false
-    private var sortMode = "PRICE_ASC"
+    private var sortMode = "NEWEST"
     private var genderFilter = ""
     private var typeFilter = ""
     private var typeFilterIndex = 0
