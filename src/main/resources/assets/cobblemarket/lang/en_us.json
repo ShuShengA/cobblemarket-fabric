@@ -13,6 +13,8 @@
   "cobblemarket.item.sell_price": "Price",
   "cobblemarket.item.sell_max": "Max",
   "cobblemarket.item.sell_no_item": "No items to sell.",
+  "cobblemarket.item.listed": "Listed %d × %s for %d %s each!",
+  "cobblemarket.item.listed_fee": "Listed %d × %s for %d %s each! Fee of %d %s charged.",
   "cobblemarket.entry.history": "History",
   "cobblemarket.entry.all_history": "All History",
   "cobblemarket.history.title": "Transaction History",

@@ -9,6 +9,7 @@ import com.shusheng.cobblemarket.network.OpenMarketPayload
 import com.shusheng.cobblemarket.screen.HistoryScreen
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import com.shusheng.cobblemarket.screen.MarketScreen
+import com.shusheng.cobblemarket.screen.ItemSellScreen
 import com.shusheng.cobblemarket.screen.SellSelectScreen
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -94,6 +95,7 @@ object CobbleMarketClient : ClientModInitializer {
                 when (screen) {
                     is MarketScreen -> screen.onMarketResult(payload)
                     is SellSelectScreen -> screen.onMarketResult(payload)
+                    is ItemSellScreen -> screen.onMarketResult(payload)
                 }
             }
         }

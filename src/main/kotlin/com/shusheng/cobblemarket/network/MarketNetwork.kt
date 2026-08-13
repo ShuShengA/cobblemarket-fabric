@@ -4,6 +4,8 @@ import com.cobblemon.mod.common.Cobblemon
 import com.cobblemon.mod.common.api.storage.party.PartyPosition
 import com.shusheng.cobblemarket.config.CurrencyHandler
 import com.shusheng.cobblemarket.CobbleMarket
+import com.shusheng.cobblemarket.market.ItemListing
+import com.shusheng.cobblemarket.market.ItemMarketState
 import com.shusheng.cobblemarket.market.ListingStatus
 import com.shusheng.cobblemarket.market.MarketListing
 import com.shusheng.cobblemarket.market.MarketState
@@ -12,6 +14,8 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking
 import net.minecraft.item.Items
 import net.minecraft.item.ItemStack
 import net.minecraft.nbt.NbtCompound
+import net.minecraft.registry.Registries
+import net.minecraft.util.Identifier
 import net.minecraft.network.PacketByteBuf
 import net.minecraft.network.codec.PacketCodec
 import net.minecraft.network.codec.PacketCodecs
@@ -340,6 +344,19 @@ data class SellFromStoragePayload(val pokemonUuid: UUID, val price: Int) : Custo
     }
 }
 
+// ── C2S: Sell item ──
+
+data class SellItemPayload(val itemId: String, val itemNbt: NbtCompound, val count: Int, val price: Int) : CustomPayload {
+    override fun getId() = ID
+    companion object {
+        val ID = CustomPayload.Id<SellItemPayload>(CobbleMarket.id("sell_item"))
+        val CODEC: PacketCodec<PacketByteBuf, SellItemPayload> = PacketCodec.of(
+            { p, b -> b.writeString(p.itemId); PacketCodecs.NBT_COMPOUND.encode(b, p.itemNbt); b.writeInt(p.count); b.writeInt(p.price) },
+            { b -> SellItemPayload(b.readString(), PacketCodecs.NBT_COMPOUND.decode(b), b.readInt(), b.readInt()) }
+        )
+    }
+}
+
 // ── Registration ──
 
 private const val LISTING_DURATION_DAYS = 7
@@ -352,6 +369,7 @@ object MarketNetwork {
         PayloadTypeRegistry.playC2S().register(CancelFromMarketPayload.ID, CancelFromMarketPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(RequestMyPokemonPayload.ID, RequestMyPokemonPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(SellFromStoragePayload.ID, SellFromStoragePayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(SellItemPayload.ID, SellItemPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(CollectBalancePayload.ID, CollectBalancePayload.CODEC)
         PayloadTypeRegistry.playC2S().register(RequestHistoryPayload.ID, RequestHistoryPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(MyPokemonListPayload.ID, MyPokemonListPayload.CODEC)
@@ -608,6 +626,81 @@ object MarketNetwork {
                     Text.translatable("cobblemarket.cmd.listed_fee", pokemon.species.translatedName, pokemon.level, payload.price, CurrencyHandler.getName(), fee, CurrencyHandler.getName())
                 else
                     Text.translatable("cobblemarket.cmd.listed", pokemon.species.translatedName, pokemon.level, payload.price, CurrencyHandler.getName())
+                ServerPlayNetworking.send(player, MarketResultPayload(true, listedMsg))
+            }
+        }
+
+        ServerPlayNetworking.registerGlobalReceiver(SellItemPayload.ID) { payload, context ->
+            val player = context.player()
+            val server = player.server
+            server.execute {
+                val itemId = Identifier.tryParse(payload.itemId)
+                if (itemId == null || payload.count <= 0 || payload.price <= 0) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
+                    return@execute
+                }
+                val item = Registries.ITEM.get(itemId)
+                if (item == Items.AIR) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
+                    return@execute
+                }
+
+                // 重建目标物品，按物品+组件匹配
+                val targetStack = ItemStack.fromNbtOrEmpty(player.serverWorld.registryManager, payload.itemNbt)
+                val inv = player.inventory
+                var available = 0
+                for (i in 0 until inv.size()) {
+                    val stack = inv.getStack(i)
+                    if (ItemStack.areItemsAndComponentsEqual(stack, targetStack)) available += stack.count
+                }
+                if (available < payload.count) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found")))
+                    return@execute
+                }
+
+                // 手续费（基于总价）
+                val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.listingFeePercent
+                val totalPrice = payload.price * payload.count
+                val fee = if (feePercent > 0) Math.ceil(totalPrice * feePercent / 100.0).toInt() else 0
+                if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
+                    ServerPlayNetworking.send(player, MarketResultPayload(false,
+                        Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName())))
+                    return@execute
+                }
+
+                // 扣物品
+                var remaining = payload.count
+                for (i in 0 until inv.size()) {
+                    val stack = inv.getStack(i)
+                    if (ItemStack.areItemsAndComponentsEqual(stack, targetStack)) {
+                        val r = minOf(remaining, stack.count)
+                        stack.decrement(r)
+                        remaining -= r
+                        if (remaining <= 0) break
+                    }
+                }
+
+                val now = System.currentTimeMillis()
+                val listing = ItemListing(
+                    id = UUID.randomUUID(),
+                    sellerUuid = player.uuid,
+                    sellerName = player.name.string,
+                    itemId = payload.itemId,
+                    itemNbt = payload.itemNbt,
+                    count = payload.count,
+                    price = payload.price,
+                    createdAt = now,
+                    expiresAt = now + 7 * 24 * 60 * 60 * 1000L,
+                    status = ListingStatus.ACTIVE
+                )
+
+                val state = ItemMarketState.get(server)
+                state.addListing(listing)
+
+                val listedMsg: Text = if (fee > 0)
+                    Text.translatable("cobblemarket.item.listed_fee", item.name, payload.count, payload.price, CurrencyHandler.getName(), fee, CurrencyHandler.getName())
+                else
+                    Text.translatable("cobblemarket.item.listed", item.name, payload.count, payload.price, CurrencyHandler.getName())
                 ServerPlayNetworking.send(player, MarketResultPayload(true, listedMsg))
             }
         }
