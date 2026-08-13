@@ -2,6 +2,7 @@ package com.shusheng.cobblemarket
 
 import com.shusheng.cobblemarket.command.MarketCommands
 import com.shusheng.cobblemarket.event.TransactionHistory
+import com.shusheng.cobblemarket.market.ItemMarketState
 import com.shusheng.cobblemarket.market.MarketState
 import com.shusheng.cobblemarket.network.MarketNetwork
 import net.fabricmc.api.ModInitializer
@@ -38,15 +39,6 @@ object CobbleMarket : ModInitializer {
 			val stateServer = player.server
 
 			stateServer.execute {
-				val returned = state.returnExpiredToPlayer(player)
-				if (returned > 0) {
-					player.sendMessage(
-						Text.translatable("cobblemarket.cmd.login_returns", returned)
-							.formatted(Formatting.YELLOW),
-						false
-					)
-				}
-
 				val balance = state.claimPendingBalance(player.uuid)
 				if (balance > 0) {
 					com.shusheng.cobblemarket.config.CurrencyHandler.give(player, balance)

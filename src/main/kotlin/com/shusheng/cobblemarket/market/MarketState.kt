@@ -45,7 +45,8 @@ class MarketState private constructor() : PersistentState() {
         gender: String? = null,
         typeFilter: String? = null,
         minIvs: Map<String, Int> = emptyMap(),
-        sellerUuid: UUID? = null
+        sellerUuid: UUID? = null,
+        sellerName: String? = null
     ): List<MarketListing> {
         var results = getActiveListings()
         species?.let { s -> results = results.filter {
@@ -65,6 +66,7 @@ class MarketState private constructor() : PersistentState() {
             results = results.filter { (it.extraData[statName]?.toIntOrNull() ?: 0) == value }
         }
         sellerUuid?.let { u -> results = results.filter { it.sellerUuid == u } }
+        sellerName?.let { s -> results = results.filter { it.sellerName.contains(s, ignoreCase = true) } }
         return when (sortBy) {
             SortMode.PRICE_ASC -> results.sortedBy { it.price }
             SortMode.PRICE_DESC -> results.sortedByDescending { it.price }
@@ -78,40 +80,51 @@ class MarketState private constructor() : PersistentState() {
     fun countActiveBySeller(sellerUuid: UUID): Int =
         listings.values.count { it.sellerUuid == sellerUuid && it.isActive() }
 
-    fun expireOldListings(server: MinecraftServer, currentTime: Long) {
+    fun expireOldListings(currentTime: Long) {
         val expired = listings.values.filter { it.isActive() && it.expiresAt <= currentTime }
         expired.forEach { listing ->
             listing.status = ListingStatus.EXPIRED
-            val seller = server.playerManager.getPlayer(listing.sellerUuid)
-            if (seller != null) {
-                if (returnPokemon(seller, listing)) {
-                    com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(seller.uuid, listing))
-                }
-            } else {
-                pendingReturns.getOrPut(listing.sellerUuid) { mutableListOf() }.add(listing)
-            }
+            pendingReturns.getOrPut(listing.sellerUuid) { mutableListOf() }.add(listing)
         }
         if (expired.isNotEmpty()) markDirty()
     }
 
-    fun returnExpiredToPlayer(player: ServerPlayerEntity): Int {
-        val playerReturns = pendingReturns.remove(player.uuid) ?: return 0
+    fun getPendingReturns(playerUuid: UUID): List<MarketListing> =
+        pendingReturns[playerUuid] ?: emptyList()
+
+    fun addPendingReturn(playerUuid: UUID, listing: MarketListing) {
+        pendingReturns.getOrPut(playerUuid) { mutableListOf() }.add(listing)
+        markDirty()
+    }
+
+    fun claimReturns(player: ServerPlayerEntity): Int {
+        val playerReturns = pendingReturns[player.uuid] ?: return 0
+        val remaining = mutableListOf<MarketListing>()
         var returned = 0
         playerReturns.forEach { listing ->
             if (returnPokemon(player, listing)) {
                 returned++
                 com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(player.uuid, listing))
+            } else {
+                remaining.add(listing)
             }
+        }
+        if (remaining.isEmpty()) {
+            pendingReturns.remove(player.uuid)
+        } else {
+            pendingReturns[player.uuid] = remaining
         }
         if (returned > 0) markDirty()
         return returned
     }
 
     private fun returnPokemon(player: ServerPlayerEntity, listing: MarketListing): Boolean {
-        val party = Cobblemon.storage.getParty(player)
         val pokemon = com.cobblemon.mod.common.pokemon.Pokemon()
             .loadFromNBT(player.serverWorld.registryManager, listing.pokemonNbt)
-        return party.add(pokemon)
+        val party = Cobblemon.storage.getParty(player)
+        if (party.add(pokemon)) return true
+        val pc = Cobblemon.storage.getPC(player)
+        return pc.add(pokemon)
     }
 
     fun markModified() = markDirty()

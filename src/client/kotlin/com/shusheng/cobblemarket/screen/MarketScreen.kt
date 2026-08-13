@@ -57,6 +57,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private val iconSize = 20
 
     private var confirmEntry: ListingEntry? = null
+    private var cancelEntry: ListingEntry? = null
     private var confirmRenderable: RenderablePokemon? = null
     private var confirmDisplayName = ""
     private val confirmState = FloatingState()
@@ -130,6 +131,12 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         addDrawableChild(NineSliceButton(
             leftX, 13, 50, 16,
             Text.translatable("cobblemarket.gui.collect"), { collectBalance() }
+        ))
+
+        // Expired returns button
+        addDrawableChild(NineSliceButton(
+            leftX + 52, 13, 50, 16,
+            Text.translatable("cobblemarket.gui.returns"), { client?.setScreen(PokemonReturnScreen()) }
         ))
 
         // Back button (top-right, symmetric with collect)
@@ -247,7 +254,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             val isMine = playerUuid != null && entry.sellerUuid == playerUuid
             val label = if (isMine) Text.literal("✕") else Text.translatable("cobblemarket.gui.buy")
             val action = if (isMine)
-                ButtonWidget.PressAction { requestCancel(entry.id) }
+                ButtonWidget.PressAction { openCancelDialog(entry) }
             else
                 ButtonWidget.PressAction { openConfirmDialog(entry) }
             val btn = NineSliceButton(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2, label, action)
@@ -272,8 +279,25 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         }
     }
 
+    private fun openCancelDialog(entry: ListingEntry) {
+        cancelEntry = entry
+        confirmRenderable = null
+        confirmDisplayName = ""
+        val id = Identifier.tryParse(entry.speciesId)
+        if (id != null) {
+            val species = PokemonSpecies.getByIdentifier(id)
+            if (species != null) {
+                val aspects = mutableSetOf<String>()
+                if (entry.shiny) aspects.add("shiny")
+                confirmRenderable = RenderablePokemon(species, aspects, ItemStack.EMPTY)
+                confirmDisplayName = species.translatedName.string
+            }
+        }
+    }
+
     private fun closeConfirmDialog() {
         confirmEntry = null
+        cancelEntry = null
         confirmRenderable = null
         confirmDisplayName = ""
     }
@@ -281,6 +305,12 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private fun confirmPurchase() {
         val entry = confirmEntry ?: return
         ClientPlayNetworking.send(BuyFromMarketPayload(entry.id))
+        closeConfirmDialog()
+    }
+
+    private fun confirmCancel() {
+        val entry = cancelEntry ?: return
+        ClientPlayNetworking.send(CancelFromMarketPayload(entry.id))
         closeConfirmDialog()
     }
 
@@ -448,14 +478,23 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         f === searchField || f === hpField || f === atkField || f === defField || f === spaField || f === spdField || f === speField
     } ?: false
 
+    private fun isMouseOverAnyInput(mouseX: Double, mouseY: Double): Boolean =
+        searchField?.isMouseOver(mouseX, mouseY) == true ||
+        hpField?.isMouseOver(mouseX, mouseY) == true ||
+        atkField?.isMouseOver(mouseX, mouseY) == true ||
+        defField?.isMouseOver(mouseX, mouseY) == true ||
+        spaField?.isMouseOver(mouseX, mouseY) == true ||
+        spdField?.isMouseOver(mouseX, mouseY) == true ||
+        speField?.isMouseOver(mouseX, mouseY) == true
+
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
-        if (confirmEntry != null) {
+        if (confirmEntry != null || cancelEntry != null) {
             handleConfirmDialogClick(mouseX.toInt(), mouseY.toInt())
             return true
         }
         val wasInInput = isInputFieldFocused()
         val result = super.mouseClicked(mouseX, mouseY, button)
-        if (wasInInput) {
+        if (wasInInput && !isMouseOverAnyInput(mouseX, mouseY)) {
             focused = null
         }
         return result
@@ -564,7 +603,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         context.drawCenteredTextWithShadow(
             textRenderer,
             Text.translatable("cobblemarket.gui.title").formatted(Formatting.GOLD),
-            centerX, 20, 0xFFFFFF
+            centerX, 14, 0xFFFFFF
         )
 
         // Pending balance (right of collect button)
@@ -668,13 +707,13 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         prevButton.active = currentPage > 1
         nextButton.active = currentPage < totalPages
 
-        if (confirmEntry != null) {
+        if (confirmEntry != null || cancelEntry != null) {
             renderConfirmDialog(context, mouseX, mouseY)
         }
     }
 
     private fun renderConfirmDialog(context: DrawContext, mouseX: Int, mouseY: Int) {
-        val entry = confirmEntry ?: return
+        val entry = confirmEntry ?: cancelEntry ?: return
         val centerX = width / 2
         val dialogW = 220
         val dialogH = 200
@@ -693,8 +732,9 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         drawNineSlice(context, DIALOG_BACKGROUND_TEXTURE, dialogX, dialogY, dialogW, dialogH, 0, DIALOG_BACKGROUND_TEX_H)
 
         // 标题
+        val titleKey = if (cancelEntry != null) "cobblemarket.item.cancel_title" else "cobblemarket.buy_confirm.title"
         context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.buy_confirm.title").formatted(Formatting.GOLD),
+            Text.translatable(titleKey).formatted(Formatting.GOLD),
             centerX, dialogY + 14, 0xFFFFFF)
 
         // 精灵 3D 图标（槽背景 + 精灵，对齐列表图标渲染）
@@ -764,7 +804,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         drawNineSlice(context, BUTTON_TEXTURE, confirmX, btnY, btnW, btnH, if (confirmHover) 1 else 0, BUTTON_TEX_H)
         drawNineSlice(context, BUTTON_TEXTURE, cancelX, btnY, btnW, btnH, if (cancelHover) 1 else 0, BUTTON_TEX_H)
-        context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.buy_confirm.confirm"), confirmX + btnW / 2, btnY + (btnH - 8) / 2, 0xFFFFFF)
+        val confirmKey = if (cancelEntry != null) "cobblemarket.item.cancel_confirm" else "cobblemarket.buy_confirm.confirm"
+        context.drawCenteredTextWithShadow(textRenderer, Text.translatable(confirmKey), confirmX + btnW / 2, btnY + (btnH - 8) / 2, 0xFFFFFF)
         context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.buy_confirm.cancel"), cancelX + btnW / 2, btnY + (btnH - 8) / 2, 0xFFFFFF)
         context.matrices.pop()
     }
@@ -779,7 +820,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val confirmX = centerX - btnW - 5
         val cancelX = centerX + 5
         if (mx in confirmX..(confirmX + btnW) && my in btnY..(btnY + btnH)) {
-            confirmPurchase()
+            if (cancelEntry != null) confirmCancel() else confirmPurchase()
         } else if (mx in cancelX..(cancelX + btnW) && my in btnY..(btnY + btnH)) {
             closeConfirmDialog()
         }

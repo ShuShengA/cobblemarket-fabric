@@ -2,14 +2,22 @@ package com.shusheng.cobblemarket.client
 
 import com.shusheng.cobblemarket.CobbleMarket
 import com.shusheng.cobblemarket.network.HistoryDataPayload
+import com.shusheng.cobblemarket.network.ItemMarketDataPayload
 import com.shusheng.cobblemarket.network.MarketDataPayload
+import com.shusheng.cobblemarket.network.ItemReturnDataPayload
 import com.shusheng.cobblemarket.network.MarketResultPayload
 import com.shusheng.cobblemarket.network.MyPokemonListPayload
 import com.shusheng.cobblemarket.network.OpenMarketPayload
+import com.shusheng.cobblemarket.network.PokemonReturnDataPayload
+import com.shusheng.cobblemarket.screen.AdminItemScreen
+import com.shusheng.cobblemarket.screen.AdminPokemonScreen
 import com.shusheng.cobblemarket.screen.HistoryScreen
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import com.shusheng.cobblemarket.screen.MarketScreen
+import com.shusheng.cobblemarket.screen.ItemMarketScreen
+import com.shusheng.cobblemarket.screen.ItemReturnScreen
 import com.shusheng.cobblemarket.screen.ItemSellScreen
+import com.shusheng.cobblemarket.screen.PokemonReturnScreen
 import com.shusheng.cobblemarket.screen.SellSelectScreen
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -62,8 +70,20 @@ object CobbleMarketClient : ClientModInitializer {
             val client = MinecraftClient.getInstance()
             client.execute {
                 val screen = client.currentScreen
-                if (screen is MarketScreen) {
-                    screen.onMarketData(payload)
+                when (screen) {
+                    is MarketScreen -> screen.onMarketData(payload)
+                    is AdminPokemonScreen -> screen.onMarketData(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(ItemMarketDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                when (screen) {
+                    is ItemMarketScreen -> screen.onItemMarketData(payload)
+                    is AdminItemScreen -> screen.onItemMarketData(payload)
                 }
             }
         }
@@ -88,6 +108,26 @@ object CobbleMarketClient : ClientModInitializer {
             }
         }
 
+        ClientPlayNetworking.registerGlobalReceiver(PokemonReturnDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is PokemonReturnScreen) {
+                    screen.onReturnData(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(ItemReturnDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is ItemReturnScreen) {
+                    screen.onReturnData(payload)
+                }
+            }
+        }
+
         ClientPlayNetworking.registerGlobalReceiver(MarketResultPayload.ID) { payload, _ ->
             val client = MinecraftClient.getInstance()
             client.execute {
@@ -96,6 +136,11 @@ object CobbleMarketClient : ClientModInitializer {
                     is MarketScreen -> screen.onMarketResult(payload)
                     is SellSelectScreen -> screen.onMarketResult(payload)
                     is ItemSellScreen -> screen.onMarketResult(payload)
+                    is ItemMarketScreen -> screen.onMarketResult(payload)
+                    is PokemonReturnScreen -> screen.onMarketResult(payload)
+                    is ItemReturnScreen -> screen.onMarketResult(payload)
+                    is AdminPokemonScreen -> screen.onMarketResult(payload)
+                    is AdminItemScreen -> screen.onMarketResult(payload)
                 }
             }
         }
