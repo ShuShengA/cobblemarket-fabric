@@ -212,6 +212,7 @@ data class PokemonPreview(
     val uuid: UUID,
     val species: String,
     val speciesId: String,
+    val speciesName: String,
     val level: Int,
     val shiny: Boolean,
     val gender: String,
@@ -225,7 +226,7 @@ data class PokemonPreview(
     val slot: Int
 ) {
     fun write(buf: PacketByteBuf) {
-        buf.writeUuid(uuid); buf.writeString(species); buf.writeString(speciesId)
+        buf.writeUuid(uuid); buf.writeString(species); buf.writeString(speciesId); buf.writeString(speciesName)
         buf.writeInt(level); buf.writeBoolean(shiny); buf.writeString(gender)
         buf.writeString(nature); buf.writeString(ability)
         buf.writeInt(ivsHp); buf.writeInt(ivsAtk); buf.writeInt(ivsDef)
@@ -235,7 +236,7 @@ data class PokemonPreview(
     }
     companion object {
         fun read(buf: PacketByteBuf) = PokemonPreview(
-            buf.readUuid(), buf.readString(), buf.readString(),
+            buf.readUuid(), buf.readString(), buf.readString(), buf.readString(),
             buf.readInt(), buf.readBoolean(), buf.readString(),
             buf.readString(), buf.readString(),
             buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(),
@@ -639,6 +640,7 @@ object MarketNetwork {
         uuid = pokemon.uuid,
         species = pokemon.species.translatedName.string,
         speciesId = pokemon.species.resourceIdentifier.toString(),
+        speciesName = pokemon.species.name,
         level = pokemon.level,
         shiny = pokemon.shiny,
         gender = pokemon.gender.name,

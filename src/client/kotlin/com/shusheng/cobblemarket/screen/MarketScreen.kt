@@ -54,7 +54,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     private var hoveredRow = -1
     private val panelWidth = 296
-    private val iconSize = 22
+    private val iconSize = 20
 
     private val typeOptions = listOf(
         "" to "不限",
@@ -108,41 +108,47 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         addDrawableChild(searchField)
 
         // Collapse/expand filters toggle (right of search field)
-        filterToggleButton = ButtonWidget.builder(
+        filterToggleButton = NineSliceButton(
+            leftX + panelWidth - 52, 44, 50, 16,
             Text.literal(if (filterExpanded) "▲" else "▼"),
             { toggleFilters() }
-        ).dimensions(leftX + panelWidth - 52, 44, 50, 16).build()
+        )
         addDrawableChild(filterToggleButton)
 
         // Sell button (right of search, left of filter toggle)
-        addDrawableChild(ButtonWidget.builder(
+        addDrawableChild(NineSliceButton(
+            leftX + panelWidth - 72, 44, 18, 16,
             Text.literal("+"), { openSellScreen() }
-        ).dimensions(leftX + panelWidth - 72, 44, 18, 16).build())
+        ))
 
         // Collect balance button (top-left)
-        addDrawableChild(ButtonWidget.builder(
+        addDrawableChild(NineSliceButton(
+            leftX, 13, 50, 16,
             Text.translatable("cobblemarket.gui.collect"), { collectBalance() }
-        ).dimensions(leftX, 18, 50, 16).build())
+        ))
 
         // Back button (top-right, symmetric with collect)
-        addDrawableChild(ButtonWidget.builder(
+        addDrawableChild(NineSliceButton(
+            leftX + panelWidth - 50, 13, 50, 16,
             Text.translatable("cobblemarket.gui.back"), { client?.setScreen(MarketEntryScreen()) }
-        ).dimensions(leftX + panelWidth - 50, 18, 50, 16).build())
+        ))
 
         // Filter controls only when expanded
         if (filterExpanded) {
 
         // Row 2 (y=54): Gender button + Type button
-        genderButton = ButtonWidget.builder(
+        genderButton = NineSliceButton(
+            leftX + 4, 66, 144, 20,
             genderButtonText(),
             { cycleGender() }
-        ).dimensions(leftX + 4, 66, 144, 20).build()
+        )
         addDrawableChild(genderButton)
 
-        typeButton = ButtonWidget.builder(
+        typeButton = NineSliceButton(
+            leftX + 152, 66, 144, 20,
             typeButtonText(),
             { cycleType() }
-        ).dimensions(leftX + 152, 66, 144, 20).build()
+        )
         addDrawableChild(typeButton)
 
         // Row 3 (y=78): HP, Atk, Def IV inputs
@@ -156,43 +162,49 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         speField = createIvField(leftX + 196, 114, "Spd")
 
         // Row 5 (y=126): Shiny + Sort + Mine + Reset
-        shinyButton = ButtonWidget.builder(
+        shinyButton = NineSliceButton(
+            leftX + 4, 138, 90, 20,
             Text.translatable(if (shinyOnly) "cobblemarket.gui.shiny_on" else "cobblemarket.gui.shiny_off"),
             { toggleShiny() }
-        ).dimensions(leftX + 4, 138, 90, 20).build()
+        )
         addDrawableChild(shinyButton)
 
-        sortButton = ButtonWidget.builder(
+        sortButton = NineSliceButton(
+            leftX + 98, 138, 90, 20,
             Text.translatable("cobblemarket.gui.sort", Text.translatable(sortDisplay())),
             { cycleSort() }
-        ).dimensions(leftX + 98, 138, 90, 20).build()
+        )
         addDrawableChild(sortButton)
 
-        mineButton = ButtonWidget.builder(
+        mineButton = NineSliceButton(
+            leftX + 192, 138, 50, 20,
             Text.translatable(if (showMineOnly) "cobblemarket.gui.mine_active" else "cobblemarket.gui.mine"),
             { toggleMineOnly() }
-        ).dimensions(leftX + 192, 138, 50, 20).build()
+        )
         addDrawableChild(mineButton)
 
-        resetButton = ButtonWidget.builder(
+        resetButton = NineSliceButton(
+            leftX + 246, 138, 50, 20,
             Text.translatable("cobblemarket.gui.reset"),
             { resetFilters() }
-        ).dimensions(leftX + 246, 138, 50, 20).build()
+        )
         addDrawableChild(resetButton)
 
         } // end if (filterExpanded)
 
         // Page buttons at bottom
-        prevButton = ButtonWidget.builder(
+        prevButton = NineSliceButton(
+            leftX, height - 28, 80, 20,
             Text.translatable("cobblemarket.gui.prev"),
             { prevPage() }
-        ).dimensions(leftX, height - 28, 80, 20).build()
+        )
         addDrawableChild(prevButton)
 
-        nextButton = ButtonWidget.builder(
+        nextButton = NineSliceButton(
+            leftX + panelWidth - 80, height - 28, 80, 20,
             Text.translatable("cobblemarket.gui.next"),
             { nextPage() }
-        ).dimensions(leftX + panelWidth - 80, height - 28, 80, 20).build()
+        )
         addDrawableChild(nextButton)
 
         rebuildBuyButtons()
@@ -210,7 +222,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     }
 
     private fun getListStartY() = (if (filterExpanded) 160 else 64) + 4
-    private fun getMaxVisibleRows() = maxOf(0, (height - getListStartY() - 48) / 22)
+    private fun getMaxVisibleRows() = maxOf(0, (height - getListStartY() - 48) / 24)
 
     private fun rebuildBuyButtons() {
         buyButtons.forEach { remove(it) }
@@ -219,7 +231,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val centerX = width / 2
         val leftX = centerX - panelWidth / 2
         val startY = getListStartY()
-        val rowHeight = 22
+        val rowHeight = 24
         val playerUuid = client?.player?.uuid
 
         displayedListings().take(getMaxVisibleRows()).forEachIndexed { di, (origIndex, entry) ->
@@ -230,8 +242,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                 ButtonWidget.PressAction { requestCancel(entry.id) }
             else
                 ButtonWidget.PressAction { client?.setScreen(BuyConfirmScreen(entry)) }
-            val btn = ButtonWidget.builder(label, action)
-                .dimensions(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2).build()
+            val btn = NineSliceButton(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2, label, action)
             buyButtons.add(btn)
             addDrawableChild(btn)
         }
@@ -331,7 +342,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     // ── Reset all filters ──
 
     private fun applyFilterVisibility() {
-        filterToggleButton.message = Text.literal(if (filterExpanded) "▲ 收起" else "▼ 筛选")
+        filterToggleButton.message = Text.translatable(if (filterExpanded) "cobblemarket.gui.filter_collapse" else "cobblemarket.gui.filter_expand")
     }
 
     private fun toggleFilters() {
@@ -366,7 +377,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         spaField?.text = ""
         spdField?.text = ""
         speField?.text = ""
-        shinyButton.message = Text.literal("☆ 闪光")
+        shinyButton.message = Text.translatable("cobblemarket.gui.shiny_off")
         genderButton.message = genderButtonText()
         typeButton.message = typeButtonText()
         sortButton.message = Text.translatable("cobblemarket.gui.sort", Text.translatable(sortDisplay()))
@@ -410,27 +421,24 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val result = super.mouseClicked(mouseX, mouseY, button)
         if (wasInInput) {
             focused = null
-            syncIvFromFields()
-            currentPage = 1
-            refreshData()
         }
         return result
     }
 
-    private fun syncIvFromFields() {
+    private fun syncIvFromFields(): Boolean {
         val fields = arrayOf(hpField, atkField, defField, spaField, spdField, speField)
-        val ivs = IntArray(6)
+        var changed = false
         for (i in 0..5) {
             val raw = fields[i]?.text ?: ""
             val digits = raw.filter { it.isDigit() }.take(2)
             // -1 sentinel: field is empty/unset, skip filtering
             // 0: user explicitly typed "0", filter for IV == 0
-            ivs[i] = if (digits.isEmpty()) -1 else digits.toIntOrNull()?.coerceIn(0, 31) ?: -1
-            if (digits != raw) fields[i]?.text = if (ivs[i] <= 0) "" else ivs[i].toString()
-            minIvs[i] = ivs[i]
+            val iv = if (digits.isEmpty()) -1 else digits.toIntOrNull()?.coerceIn(0, 31) ?: -1
+            if (digits != raw) fields[i]?.text = if (iv <= 0) "" else iv.toString()
+            if (minIvs[i] != iv) changed = true
+            minIvs[i] = iv
         }
-        currentPage = 1
-        refreshData(ivs)
+        return changed
     }
 
     private fun refreshData(ivs: IntArray = minIvs) {
@@ -481,10 +489,36 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             y += sliceH
         }
         drawPanelSlice(context, bot, panelLeft, panelBottom - sliceH)
+
+        // 列表行背景（先于按钮渲染，避免覆盖按钮）
+        val leftX = centerX - panelWidth / 2
+        val startY = getListStartY()
+        val rowHeight = 24
+        val visibleRows = getMaxVisibleRows()
+        val listAreaBottom = startY + visibleRows * rowHeight
+        val displayList = displayedListings()
+
+        hoveredRow = -1
+        if (mouseX in leftX..(leftX + panelWidth) && mouseY in startY..listAreaBottom) {
+            val relY = mouseY - startY
+            val row = relY / rowHeight
+            if (row in displayList.indices) hoveredRow = row
+        }
+
+        displayList.take(visibleRows).forEachIndexed { di, _ ->
+            val rowY = startY + di * rowHeight
+            val rowState = if (di == hoveredRow) 1 else 0
+            drawNineSlice(context, ROW_BACKGROUND_TEXTURE, leftX, rowY, panelWidth, rowHeight, rowState, ROW_BACKGROUND_TEX_H)
+        }
     }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         super.render(context, mouseX, mouseY, delta)
+
+        if (syncIvFromFields()) {
+            currentPage = 1
+            refreshData()
+        }
 
         val centerX = width / 2
         val leftX = centerX - panelWidth / 2
@@ -499,7 +533,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         // Pending balance (right of collect button)
         context.drawTextWithShadow(textRenderer,
             Text.translatable("cobblemarket.gui.pending_balance", pendingBalance).string,
-            leftX + 56, 22, 0x55FF55)
+            leftX, 31, 0x55FF55)
 
         // Page indicator
         context.drawCenteredTextWithShadow(
@@ -510,21 +544,12 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         val dividerY = getListStartY() - 4
         val startY = getListStartY()
-        val rowHeight = 22
+        val rowHeight = 24
         val visibleRows = getMaxVisibleRows()
-        val listAreaBottom = startY + visibleRows * rowHeight
 
         context.fill(leftX, dividerY, leftX + panelWidth, dividerY + 1, 0xFF555555.toInt())
 
         val displayList = displayedListings()
-
-        // Detect hover
-        hoveredRow = -1
-        if (mouseX in leftX..(leftX + panelWidth) && mouseY in startY..listAreaBottom) {
-            val relY = mouseY - startY
-            val row = relY / rowHeight
-            if (row in displayList.indices) hoveredRow = row
-        }
 
         if (displayList.isEmpty()) {
             context.drawCenteredTextWithShadow(
@@ -537,31 +562,26 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         displayList.take(visibleRows).forEachIndexed { di, (origIndex, entry) ->
             val y = startY + di * rowHeight
 
-            // Row background
-            val bgColor = if (di == hoveredRow) 0x55FFFFFF.toInt()
-                else if (di % 2 == 1) 0x22FFFFFF.toInt()
-                else 0
-            context.fill(leftX, y, leftX + panelWidth, y + rowHeight, bgColor)
-
             // Pokemon icon slot background
-            val iconX = leftX + 2
-            val iconY = y + 2
+            val slotX = leftX + 2
+            val slotY = y + 2
             val slotTexture = Identifier.of("cobblemarket", "textures/gui/pokemon_slot.png")
             context.matrices.push()
-            context.matrices.translate(iconX.toDouble(), iconY.toDouble(), 0.0)
+            context.matrices.translate(slotX.toDouble(), slotY.toDouble(), 0.0)
             context.matrices.scale(iconSize / 66f, iconSize / 66f, 1f)
             context.drawTexture(slotTexture, 0, 0, 0f, 0f, 66, 66, 66, 66)
             context.matrices.pop()
 
             // 3D Pokemon icon
+            val iconX = leftX + 2
+            val iconY = y + 2
             renderPokemonIcon(context, origIndex, iconX, iconY, iconSize)
 
             // Species name (translated)
-            val typeColor = typeColor(entry.primaryType)
             val shinyMark = if (entry.shiny) " ☆" else ""
             val displayName = iconData[origIndex]?.displayName ?: entry.species
             val speciesText = "$displayName$shinyMark"
-            context.drawTextWithShadow(textRenderer, speciesText, leftX + iconSize + 6, y + 3, typeColor)
+            context.drawText(textRenderer, speciesText, leftX + 28, y + 7, typeColor(entry.primaryType), false)
 
             // Gender icon (Cobblemon blue/red arrows)
             var iconOffset = 0
@@ -570,7 +590,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                     Identifier.of("cobblemon", "textures/gui/pc/gender_icon_male.png")
                 else
                     Identifier.of("cobblemon", "textures/gui/pc/gender_icon_female.png")
-                val genderX = leftX + iconSize + 6 + textRenderer.getWidth(speciesText) + 2
+                val genderX = leftX + 28 + textRenderer.getWidth(speciesText) + 2
                 com.cobblemon.mod.common.api.gui.blitk(
                     matrixStack = context.matrices,
                     texture = genderIcon,
@@ -588,7 +608,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                 val ballItem = Registries.ITEM.get(ballId)
                 com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
                     itemStack = ItemStack(ballItem),
-                    x = leftX + iconSize + 6 + textRenderer.getWidth(speciesText) + 2 + iconOffset + 0.0,
+                    x = leftX + 28 + textRenderer.getWidth(speciesText) + 2 + iconOffset + 0.0,
                     y = y + 4.0,
                     scale = 0.6,
                     matrixStack = context.matrices
@@ -597,10 +617,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
             // Level
             val levelText = Text.translatable("cobblemarket.gui.lv").string + entry.level
-            context.drawTextWithShadow(textRenderer, levelText, leftX + 135, y + 3, 0xAAAAAA)
+            context.drawText(textRenderer, levelText, leftX + 135, y + 7, 0x000000, false)
 
             // Price
-            context.drawTextWithShadow(textRenderer, "${entry.price} ◆", leftX + 185, y + 3, 0x55FFFF)
+            context.drawTextWithShadow(textRenderer, "${entry.price} ◆", leftX + 185, y + 7, 0x55FFFF)
         }
 
         // Tooltip on hover

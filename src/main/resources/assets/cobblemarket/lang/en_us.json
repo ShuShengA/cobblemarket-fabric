@@ -40,6 +40,8 @@
   "cobblemarket.gui.shiny_off": "☆ Shiny",
   "cobblemarket.gui.gender": "Gender",
   "cobblemarket.gui.type": "Type",
+  "cobblemarket.gui.filter_collapse": "▲ Hide",
+  "cobblemarket.gui.filter_expand": "▼ Filter",
   "cobblemarket.gui.filter_any": "Any",
   "cobblemarket.gui.filter_male": "Male",
   "cobblemarket.gui.filter_female": "Female",
