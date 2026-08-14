@@ -19,6 +19,8 @@ import net.minecraft.text.Text
 import net.minecraft.util.Formatting
 import net.minecraft.util.Identifier
 import org.joml.Quaternionf
+import com.mojang.authlib.GameProfile
+import java.util.UUID
 
 class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
@@ -83,6 +85,22 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             val displayName = species.translatedName.string
             iconData[index] = IconData(displayName, RenderablePokemon(species, aspects, ItemStack.EMPTY), FloatingState())
         }
+    }
+
+    private val defaultSkinTexture = Identifier.of("minecraft", "textures/entity/player/wide/steve.png")
+
+    private fun getSellerSkin(uuid: UUID, name: String): Identifier {
+        client?.networkHandler?.getPlayerListEntry(uuid)?.skinTextures?.texture()?.let { return it }
+        return client?.skinProvider?.getSkinTextures(GameProfile(uuid, name))?.texture() ?: defaultSkinTexture
+    }
+
+    private fun drawSellerAvatar(context: DrawContext, uuid: UUID, name: String, x: Int, y: Int, size: Int) {
+        val texture = getSellerSkin(uuid, name)
+        context.matrices.push()
+        context.matrices.translate(x.toDouble(), y.toDouble(), 0.0)
+        context.matrices.scale(size / 8f, size / 8f, 1f)
+        context.drawTexture(texture, 0, 0, 8f, 8f, 8, 8, 64, 64)
+        context.matrices.pop()
     }
 
     override fun init() {
@@ -245,7 +263,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                 ButtonWidget.PressAction { openCancelDialog(entry) }
             else
                 ButtonWidget.PressAction { openConfirmDialog(entry) }
-            val btn = NineSliceButton(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2, label, action)
+            val btn = NineSliceButton(leftX + panelWidth - 42, y + 4, 38, 16, label, action)
             buyButtons.add(btn)
             addDrawableChild(btn)
         }
@@ -656,6 +674,23 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                 iconOffset = 8
             }
 
+            // Held item icon (before ball)
+            if (entry.heldItemId.isNotEmpty()) {
+                Identifier.tryParse(entry.heldItemId)?.let { heldId ->
+                    val heldItem = Registries.ITEM.get(heldId)
+                    if (heldItem != Registries.ITEM.get(Identifier.of("minecraft", "air"))) {
+                        com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                            itemStack = ItemStack(heldItem),
+                            x = leftX + 28 + textRenderer.getWidth(speciesText) + 2 + iconOffset + 0.0,
+                            y = y + 4.0,
+                            scale = 0.6,
+                            matrixStack = context.matrices
+                        )
+                        iconOffset += 12
+                    }
+                }
+            }
+
             // Ball icon
             val ballId = Identifier.tryParse(entry.ballItem)
             if (ballId != null) {
@@ -668,6 +703,9 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
                     matrixStack = context.matrices
                 )
             }
+
+            // Seller avatar
+            drawSellerAvatar(context, entry.sellerUuid, entry.sellerName, leftX + 115, y + 4, 16)
 
             // Level
             val levelText = Text.translatable("cobblemarket.gui.lv").string + entry.level
@@ -877,23 +915,34 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         val w = 0xFFFFFF
         val ivColors = intArrayOf(0x66FF66, 0xFF6666, 0xFFCC66, 0x6699FF, 0x66FF99, 0xFF99FF)
-        val lines = listOf(
-            "${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}${if (entry.secondaryType.isNotEmpty()) " + ${Text.translatable(entry.secondaryType).string}" else ""}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w,
-            "  $hp:${entry.ivsHp}" to ivColors[0],
-            "  $atk:${entry.ivsAtk}" to ivColors[1],
-            "  $def:${entry.ivsDef}" to ivColors[2],
-            "  $spa:${entry.ivsSpAtk}" to ivColors[3],
-            "  $spd:${entry.ivsSpDef}" to ivColors[4],
-            "  $spe:${entry.ivsSpd}" to ivColors[5],
-            "${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w
-        )
+
+        val hasHeldItem = entry.heldItemId.isNotEmpty() &&
+            Identifier.tryParse(entry.heldItemId)?.let { Registries.ITEM.get(it) != Registries.ITEM.get(Identifier.of("minecraft", "air")) } == true
+
+        val lines = mutableListOf<Pair<String, Int>>()
+        lines.add("${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}${if (entry.secondaryType.isNotEmpty()) " + ${Text.translatable(entry.secondaryType).string}" else ""}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w)
+        var heldItemLine = -1
+        if (hasHeldItem) {
+            heldItemLine = lines.size
+            lines.add(Text.translatable("cobblemarket.gui.tooltip_held").string to w)
+        }
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w)
+        lines.add("  $hp:${entry.ivsHp}" to ivColors[0])
+        lines.add("  $atk:${entry.ivsAtk}" to ivColors[1])
+        lines.add("  $def:${entry.ivsDef}" to ivColors[2])
+        lines.add("  $spa:${entry.ivsSpAtk}" to ivColors[3])
+        lines.add("  $spd:${entry.ivsSpDef}" to ivColors[4])
+        lines.add("  $spe:${entry.ivsSpd}" to ivColors[5])
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w)
 
         var maxWidth = 0
         lines.forEach { maxWidth = maxOf(maxWidth, textRenderer.getWidth(it.first)) }
+        if (heldItemLine >= 0) {
+            maxWidth = maxOf(maxWidth, textRenderer.getWidth(lines[heldItemLine].first) + 14)
+        }
 
         val padding = 4
         val tx = minOf(mouseX + 12, width - maxWidth - 12)
@@ -905,7 +954,20 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         context.matrices.translate(0.0, 0.0, 400.0)
         drawNineSlice(context, ROW_BACKGROUND_TEXTURE, tx - padding, ty - padding, maxWidth + 2 * padding, lines.size * 10 + 2 * padding, 1, ROW_BACKGROUND_TEX_H)
         lines.forEachIndexed { i, (line, color) ->
-            context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+            if (i == heldItemLine) {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+                Identifier.tryParse(entry.heldItemId)?.let { heldId ->
+                    com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                        itemStack = ItemStack(Registries.ITEM.get(heldId)),
+                        x = tx + textRenderer.getWidth(line) + 2.0,
+                        y = ty + i * 10 - 2.0,
+                        scale = 0.6,
+                        matrixStack = context.matrices
+                    )
+                }
+            } else {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+            }
         }
         context.matrices.pop()
     }

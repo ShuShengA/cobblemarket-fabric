@@ -79,7 +79,7 @@ class ItemSellScreen : Screen(Text.translatable("cobblemarket.item.sell_title"))
         items.drop(scrollOffset).take(maxVisible()).forEachIndexed { i, item ->
             val y = startY + i * rowHeight
             val btn = NineSliceButton(
-                leftX + panelWidth - 52, y + 2, 46, rowHeight - 4,
+                leftX + panelWidth - 52, y + 4, 46, 16,
                 Text.translatable("cobblemarket.sell.sell"),
                 { openConfirmDialog(item) }
             )

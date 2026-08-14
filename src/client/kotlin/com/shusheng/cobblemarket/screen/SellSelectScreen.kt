@@ -231,26 +231,41 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
             var sx = lx + 28
             context.drawText(textRenderer, src, sx, y + 7, srcColor, false)
             sx += textRenderer.getWidth(src) + 4
-            context.drawText(textRenderer, "${e.species}$sm", sx, y + 7, tc, false)
+            val speciesName = "${e.species}$sm"
+            context.drawText(textRenderer, speciesName, sx, y + 7, tc, false)
+            sx += textRenderer.getWidth(speciesName) + 2
 
-            // Level
-            context.drawText(textRenderer, "Lv.${e.level}", lx + 135, y + 7, 0xAAAAAA, false)
-
-            // Gender icon
+            // Gender icon（紧跟名字）
             if (e.gender == "MALE" || e.gender == "FEMALE") {
                 val gi = Identifier.of("cobblemon", if (e.gender == "MALE") "textures/gui/pc/gender_icon_male.png" else "textures/gui/pc/gender_icon_female.png")
-                com.cobblemon.mod.common.api.gui.blitk(matrixStack = context.matrices, texture = gi, x = lx + 175, y = y + 6, width = 6, height = 8)
+                com.cobblemon.mod.common.api.gui.blitk(matrixStack = context.matrices, texture = gi, x = sx, y = y + 5, width = 6, height = 8)
+                sx += 8
             }
 
-            // Ball icon
+            // Held item icon（紧跟性别）
+            if (e.heldItemId.isNotEmpty()) {
+                Identifier.tryParse(e.heldItemId)?.let { heldId ->
+                    val heldItem = Registries.ITEM.get(heldId)
+                    if (heldItem != Registries.ITEM.get(Identifier.of("minecraft", "air"))) {
+                        com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                            itemStack = ItemStack(heldItem), x = sx.toDouble(), y = y + 4.0, scale = 0.6, matrixStack = context.matrices)
+                        sx += 12
+                    }
+                }
+            }
+
+            // Ball icon（紧跟携带物）
             if (e.ball.isNotEmpty()) {
-                val ballId = Identifier.tryParse(e.ball.removePrefix("item."))
+                val ballId = Identifier.tryParse(e.ball.removePrefix("item.").replaceFirst(".", ":"))
                 if (ballId != null) {
                     val bi = Registries.ITEM.get(ballId)
                     com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
-                        itemStack = ItemStack(bi), x = lx + 185.0, y = y + 2.0, scale = 0.55, matrixStack = context.matrices)
+                        itemStack = ItemStack(bi), x = sx.toDouble(), y = y + 4.0, scale = 0.6, matrixStack = context.matrices)
                 }
             }
+
+            // Level
+            context.drawText(textRenderer, "Lv.${e.level}", lx + 135, y + 7, 0xAAAAAA, false)
         }
 
         // Tooltip on hover
@@ -303,16 +318,27 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
         val typeText = Text.translatable(p.primaryType).string +
             if (p.secondaryType.isNotEmpty()) " + ${Text.translatable(p.secondaryType).string}" else ""
 
-        val lines = listOf(
-            "${p.species}${if (p.shiny) " ☆" else ""}  Lv.${p.level}" to 0xFFFFFF,
-            "${Text.translatable("cobblemarket.gui.tooltip_type").string}$typeText" to 0xFFFFFF,
-            "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(p.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(p.ability).string}" to 0xFFFFFF,
-            "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to 0xFFFFFF,
-            "  $hp:${p.ivsHp}" to 0x66FF66, "  $atk:${p.ivsAtk}" to 0xFF6666,
-            "  $def:${p.ivsDef}" to 0xFFCC66, "  $spa:${p.ivsSpAtk}" to 0x6699FF,
-            "  $spd:${p.ivsSpDef}" to 0x66FF99, "  $spe:${p.ivsSpd}" to 0xFF99FF
-        )
+        val hasHeldItem = p.heldItemId.isNotEmpty() &&
+            Identifier.tryParse(p.heldItemId)?.let { Registries.ITEM.get(it) != Registries.ITEM.get(Identifier.of("minecraft", "air")) } == true
+
+        val lines = mutableListOf<Pair<String, Int>>()
+        lines.add("${p.species}${if (p.shiny) " ☆" else ""}  Lv.${p.level}" to 0xFFFFFF)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_type").string}$typeText" to 0xFFFFFF)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(p.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(p.ability).string}" to 0xFFFFFF)
+        var heldItemLine = -1
+        if (hasHeldItem) {
+            heldItemLine = lines.size
+            lines.add(Text.translatable("cobblemarket.gui.tooltip_held").string to 0xFFFFFF)
+        }
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to 0xFFFFFF)
+        lines.add("  $hp:${p.ivsHp}" to 0x66FF66); lines.add("  $atk:${p.ivsAtk}" to 0xFF6666)
+        lines.add("  $def:${p.ivsDef}" to 0xFFCC66); lines.add("  $spa:${p.ivsSpAtk}" to 0x6699FF)
+        lines.add("  $spd:${p.ivsSpDef}" to 0x66FF99); lines.add("  $spe:${p.ivsSpd}" to 0xFF99FF)
+
         var mw = 0; lines.forEach { mw = maxOf(mw, textRenderer.getWidth(it.first)) }
+        if (heldItemLine >= 0) {
+            mw = maxOf(mw, textRenderer.getWidth(lines[heldItemLine].first) + 14)
+        }
         val pad = 4
         val tx = minOf(mx + 12, width - mw - 12)
         val th = lines.size * 10 + pad
@@ -320,7 +346,22 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
 
         context.matrices.push(); context.matrices.translate(0.0, 0.0, 400.0)
         drawNineSlice(context, ROW_BACKGROUND_TEXTURE, tx - pad, ty - pad, mw + 2 * pad, lines.size * 10 + 2 * pad, bgState, ROW_BACKGROUND_TEX_H)
-        lines.forEachIndexed { i, (line, color) -> context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color) }
+        lines.forEachIndexed { i, (line, color) ->
+            if (i == heldItemLine) {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+                Identifier.tryParse(p.heldItemId)?.let { heldId ->
+                    com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                        itemStack = ItemStack(Registries.ITEM.get(heldId)),
+                        x = tx + textRenderer.getWidth(line) + 2.0,
+                        y = ty + i * 10 - 2.0,
+                        scale = 0.6,
+                        matrixStack = context.matrices
+                    )
+                }
+            } else {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+            }
+        }
         context.matrices.pop()
     }
 

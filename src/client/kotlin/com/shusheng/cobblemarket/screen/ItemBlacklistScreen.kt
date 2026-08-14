@@ -112,7 +112,7 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
             Identifier.tryParse(itemId)?.let { id ->
                 val item = Registries.ITEM.get(id)
                 if (item != Registries.ITEM.get(Identifier.of("minecraft", "air"))) {
-                    context.drawItem(ItemStack(item), centerX + 66, dialogY + 24)
+                    context.drawItem(ItemStack(item), centerX + 66, dialogY + 30)
                 }
             }
         }
@@ -174,7 +174,7 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
         filteredEntries().drop(scrollOffset).take(getMaxVisibleRows()).forEachIndexed { i, itemId ->
             val y = startY + i * rowHeight
             val btn = NineSliceButton(
-                leftX + panelWidth - 50, y + 2, 44, rowHeight - 4,
+                leftX + panelWidth - 50, y + 4, 44, 16,
                 Text.translatable("cobblemarket.blacklist.remove"),
                 { ClientPlayNetworking.send(RemoveItemBlacklistPayload(itemId)) }
             )

@@ -171,7 +171,7 @@ class AdminBanScreen : Screen(Text.translatable("cobblemarket.ban.title")) {
         bans.drop(scrollOffset).take(maxVisible()).forEachIndexed { i, entry ->
             val y = listStartY + i * rowHeight
             val btn = NineSliceButton(
-                leftX + panelWidth - 60, y + 1, 56, rowHeight - 2,
+                leftX + panelWidth - 60, y + 3, 56, 16,
                 Text.translatable("cobblemarket.ban.unban"),
                 { doUnban(entry) }
             )

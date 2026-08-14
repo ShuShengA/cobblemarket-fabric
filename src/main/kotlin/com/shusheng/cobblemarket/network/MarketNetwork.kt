@@ -45,6 +45,7 @@ data class ListingEntry(
     val gender: String,
     val ball: String,
     val ballItem: String,
+    val heldItemId: String,
     val currencyName: String
 ) {
     fun write(buf: PacketByteBuf) {
@@ -65,6 +66,7 @@ data class ListingEntry(
         buf.writeString(gender)
         buf.writeString(ball)
         buf.writeString(ballItem)
+        buf.writeString(heldItemId)
         buf.writeString(currencyName)
     }
 
@@ -87,6 +89,7 @@ data class ListingEntry(
             gender = buf.readString(),
             ball = buf.readString(),
             ballItem = buf.readString(),
+            heldItemId = buf.readString(),
             currencyName = buf.readString()
         )
     }
@@ -319,7 +322,8 @@ data class PokemonPreview(
     val primaryType: String,
     val secondaryType: String,
     val source: String, // "party" or "pc"
-    val slot: Int
+    val slot: Int,
+    val heldItemId: String
 ) {
     fun write(buf: PacketByteBuf) {
         buf.writeUuid(uuid); buf.writeString(species); buf.writeString(speciesId); buf.writeString(speciesName)
@@ -328,7 +332,7 @@ data class PokemonPreview(
         buf.writeInt(ivsHp); buf.writeInt(ivsAtk); buf.writeInt(ivsDef)
         buf.writeInt(ivsSpAtk); buf.writeInt(ivsSpDef); buf.writeInt(ivsSpd)
         buf.writeString(ball); buf.writeString(primaryType); buf.writeString(secondaryType)
-        buf.writeString(source); buf.writeInt(slot)
+        buf.writeString(source); buf.writeInt(slot); buf.writeString(heldItemId)
     }
 
     companion object {
@@ -338,7 +342,7 @@ data class PokemonPreview(
             buf.readString(), buf.readString(),
             buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(),
             buf.readString(), buf.readString(), buf.readString(),
-            buf.readString(), buf.readInt()
+            buf.readString(), buf.readInt(), buf.readString()
         )
     }
 }
@@ -786,6 +790,7 @@ object MarketNetwork {
                             gender = detail["gender"] ?: "?",
                             ball = detail["ball"] ?: "?",
                             ballItem = detail["ballItem"] ?: "cobblemon:poke_ball",
+                            heldItemId = detail["heldItemId"] ?: "",
                             currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
                         )
                     }
@@ -1021,6 +1026,7 @@ object MarketNetwork {
                             gender = detail["gender"] ?: "?",
                             ball = detail["ball"] ?: "?",
                             ballItem = detail["ballItem"] ?: "cobblemon:poke_ball",
+                            heldItemId = detail["heldItemId"] ?: "",
                             currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
                         )
                     }
@@ -1275,13 +1281,14 @@ object MarketNetwork {
                     return@execute
                 }
 
+                val heldItemStack = pokemon.heldItem()
+
                 // 移除精灵
                 if (fromParty) party.remove(pokemon) else pc.remove(pokemon)
 
                 val world = player.serverWorld
                 val nbt = pokemon.saveToNBT(world.registryManager, NbtCompound())
                 val now = System.currentTimeMillis()
-
                 val extra = mutableMapOf(
                     "speciesId" to pokemon.species.resourceIdentifier.toString(),
                     "speciesName" to pokemon.species.translatedName.string,
@@ -1297,7 +1304,8 @@ object MarketNetwork {
                     "ability" to "cobblemon.ability.${pokemon.ability.name}",
                     "gender" to pokemon.gender.name,
                     "ball" to "item.cobblemon.${pokemon.caughtBall.name.path}",
-                    "ballItem" to "cobblemon:${pokemon.caughtBall.name.path}"
+                    "ballItem" to "cobblemon:${pokemon.caughtBall.name.path}",
+                    "heldItemId" to (if (heldItemStack.isEmpty) "" else Registries.ITEM.getId(heldItemStack.item).toString())
                 )
                 pokemon.secondaryType?.let { extra["secondaryType"] = "cobblemon.type.${it.name.lowercase()}" }
 
@@ -1905,7 +1913,8 @@ object MarketNetwork {
             primaryType = "cobblemon.type.${pokemon.primaryType.name.lowercase()}",
             secondaryType = pokemon.secondaryType?.let { "cobblemon.type.${it.name.lowercase()}" } ?: "",
             source = source,
-            slot = slot
+            slot = slot,
+            heldItemId = if (pokemon.heldItem().isEmpty) "" else Registries.ITEM.getId(pokemon.heldItem().item).toString()
         )
 
     fun openScreen(player: ServerPlayerEntity) {

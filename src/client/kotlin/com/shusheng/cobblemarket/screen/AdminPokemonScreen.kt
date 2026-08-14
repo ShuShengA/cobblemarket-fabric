@@ -180,7 +180,7 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         val rowHeight = 24
         displayedListings().take(getMaxVisibleRows()).forEachIndexed { di, (_, entry) ->
             val y = startY + di * rowHeight
-            val btn = NineSliceButton(leftX + panelWidth - 42, y + 1, 38, rowHeight - 2, Text.literal("✕"), ButtonWidget.PressAction { cancelListing(entry) })
+            val btn = NineSliceButton(leftX + panelWidth - 42, y + 4, 38, 16, Text.literal("✕"), ButtonWidget.PressAction { cancelListing(entry) })
             cancelButtons.add(btn)
             addDrawableChild(btn)
         }

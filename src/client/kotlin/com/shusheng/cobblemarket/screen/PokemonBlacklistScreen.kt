@@ -289,7 +289,7 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
         filteredEntries().drop(scrollOffset).take(getMaxVisibleRows()).forEachIndexed { i, entry ->
             val y = startY + i * rowHeight
             val btn = NineSliceButton(
-                leftX + panelWidth - 50, y + 2, 44, rowHeight - 4,
+                leftX + panelWidth - 50, y + 4, 44, 16,
                 Text.translatable("cobblemarket.blacklist.remove"),
                 { ClientPlayNetworking.send(RemovePokemonBlacklistPayload(entry.id)) }
             )
