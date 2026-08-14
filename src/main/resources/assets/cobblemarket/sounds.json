@@ -1,0 +1,10 @@
+{
+  "button_click": {
+    "sounds": [
+      {
+        "name": "cobblemarket:button",
+        "stream": false
+      }
+    ]
+  }
+}
