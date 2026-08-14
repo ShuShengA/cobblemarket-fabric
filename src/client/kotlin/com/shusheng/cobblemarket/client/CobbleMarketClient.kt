@@ -1,14 +1,18 @@
 package com.shusheng.cobblemarket.client
 
 import com.shusheng.cobblemarket.CobbleMarket
+import com.shusheng.cobblemarket.network.BanListDataPayload
 import com.shusheng.cobblemarket.network.HistoryDataPayload
+import com.shusheng.cobblemarket.network.ItemBlacklistDataPayload
 import com.shusheng.cobblemarket.network.ItemMarketDataPayload
 import com.shusheng.cobblemarket.network.MarketDataPayload
 import com.shusheng.cobblemarket.network.ItemReturnDataPayload
 import com.shusheng.cobblemarket.network.MarketResultPayload
 import com.shusheng.cobblemarket.network.MyPokemonListPayload
 import com.shusheng.cobblemarket.network.OpenMarketPayload
+import com.shusheng.cobblemarket.network.PokemonBlacklistDataPayload
 import com.shusheng.cobblemarket.network.PokemonReturnDataPayload
+import com.shusheng.cobblemarket.screen.AdminBanScreen
 import com.shusheng.cobblemarket.screen.AdminItemScreen
 import com.shusheng.cobblemarket.screen.AdminPokemonScreen
 import com.shusheng.cobblemarket.screen.AdminScreen
@@ -16,9 +20,11 @@ import com.shusheng.cobblemarket.screen.BuyConfirmScreen
 import com.shusheng.cobblemarket.screen.HistoryScreen
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import com.shusheng.cobblemarket.screen.MarketScreen
+import com.shusheng.cobblemarket.screen.ItemBlacklistScreen
 import com.shusheng.cobblemarket.screen.ItemMarketScreen
 import com.shusheng.cobblemarket.screen.ItemReturnScreen
 import com.shusheng.cobblemarket.screen.ItemSellScreen
+import com.shusheng.cobblemarket.screen.PokemonBlacklistScreen
 import com.shusheng.cobblemarket.screen.PokemonReturnScreen
 import com.shusheng.cobblemarket.screen.SellSelectScreen
 import net.fabricmc.api.ClientModInitializer
@@ -26,6 +32,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
 import net.minecraft.client.MinecraftClient
+import net.minecraft.client.gui.widget.TextFieldWidget
 import net.minecraft.client.option.KeyBinding
 import net.minecraft.client.util.InputUtil
 import org.lwjgl.glfw.GLFW
@@ -54,9 +61,10 @@ object CobbleMarketClient : ClientModInitializer {
             val ePressed = InputUtil.isKeyPressed(client.window.handle, GLFW.GLFW_KEY_E)
             if (ePressed && !wasEPressed) {
                 val screen = client.currentScreen
-                if (screen is MarketScreen || screen is SellSelectScreen || screen is HistoryScreen || screen is MarketEntryScreen ||
+                val inputFocused = screen?.focused is TextFieldWidget
+                if (!inputFocused && (screen is MarketScreen || screen is SellSelectScreen || screen is HistoryScreen || screen is MarketEntryScreen ||
                     screen is ItemMarketScreen || screen is ItemSellScreen || screen is ItemReturnScreen || screen is PokemonReturnScreen ||
-                    screen is BuyConfirmScreen || screen is AdminScreen || screen is AdminPokemonScreen || screen is AdminItemScreen
+                    screen is BuyConfirmScreen || screen is AdminScreen || screen is AdminPokemonScreen || screen is AdminItemScreen || screen is AdminBanScreen || screen is PokemonBlacklistScreen || screen is ItemBlacklistScreen)
                 ) {
                     client.setScreen(null)
                 }
@@ -146,6 +154,37 @@ object CobbleMarketClient : ClientModInitializer {
                     is ItemReturnScreen -> screen.onMarketResult(payload)
                     is AdminPokemonScreen -> screen.onMarketResult(payload)
                     is AdminItemScreen -> screen.onMarketResult(payload)
+                    is AdminBanScreen -> screen.onResult(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(BanListDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is AdminBanScreen) {
+                    screen.onBanList(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(PokemonBlacklistDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is PokemonBlacklistScreen) {
+                    screen.onBlacklistData(payload)
+                }
+            }
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(ItemBlacklistDataPayload.ID) { payload, _ ->
+            val client = MinecraftClient.getInstance()
+            client.execute {
+                val screen = client.currentScreen
+                if (screen is ItemBlacklistScreen) {
+                    screen.onItemBlacklistData(payload)
                 }
             }
         }

@@ -4,6 +4,9 @@ import com.shusheng.cobblemarket.command.MarketCommands
 import com.shusheng.cobblemarket.event.TransactionHistory
 import com.shusheng.cobblemarket.market.ItemMarketState
 import com.shusheng.cobblemarket.market.MarketState
+import com.shusheng.cobblemarket.network.BanNetwork
+import com.shusheng.cobblemarket.network.BlacklistNetwork
+import com.shusheng.cobblemarket.network.ItemBlacklistNetwork
 import com.shusheng.cobblemarket.network.MarketNetwork
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
@@ -22,6 +25,9 @@ object CobbleMarket : ModInitializer {
 		LOGGER.info("CobbleMarket initializing...")
 		com.shusheng.cobblemarket.config.CobbleMarketConfig.load()
 		MarketNetwork.register()
+		BanNetwork.register()
+		BlacklistNetwork.register()
+		ItemBlacklistNetwork.register()
 		MarketCommands.register()
 		com.shusheng.cobblemarket.event.TransactionLogger.register()
 		TransactionHistory.register()

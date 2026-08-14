@@ -10,9 +10,11 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
 import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.Screen
 import net.minecraft.client.gui.widget.ButtonWidget
+import net.minecraft.client.sound.PositionedSoundInstance
 import net.minecraft.client.gui.widget.TextFieldWidget
 import net.minecraft.item.ItemStack
 import net.minecraft.registry.Registries
+import net.minecraft.sound.SoundEvent
 import net.minecraft.text.Text
 import net.minecraft.util.Formatting
 import net.minecraft.util.Identifier
@@ -63,25 +65,8 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private val confirmState = FloatingState()
 
     private val typeOptions = listOf(
-        "" to "不限",
-        "normal" to "一般",
-        "fire" to "火",
-        "water" to "水",
-        "electric" to "电",
-        "grass" to "草",
-        "ice" to "冰",
-        "fighting" to "格斗",
-        "poison" to "毒",
-        "ground" to "地面",
-        "flying" to "飞行",
-        "psychic" to "超能力",
-        "bug" to "虫",
-        "rock" to "岩石",
-        "ghost" to "幽灵",
-        "dragon" to "龙",
-        "dark" to "恶",
-        "steel" to "钢",
-        "fairy" to "妖精"
+        "", "normal", "fire", "water", "electric", "grass", "ice", "fighting", "poison", "ground",
+        "flying", "psychic", "bug", "rock", "ghost", "dragon", "dark", "steel", "fairy"
     )
 
     // Cached renderables per listing index
@@ -109,7 +94,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         // Row 1 (y=32): Search text field (full width)
         searchField = TextFieldWidget(textRenderer, leftX + 2, 44, panelWidth - 4 - 52 - 20, 16, Text.translatable("cobblemarket.gui.search"))
         searchField?.setPlaceholder(Text.translatable("cobblemarket.gui.search_placeholder").formatted(Formatting.GRAY))
-        // Search triggers on focus loss via mouseClicked
+        searchField?.setChangedListener {
+            currentPage = 1
+            refreshData()
+        }
         addSelectableChild(searchField)
         addDrawableChild(searchField)
 
@@ -237,7 +225,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     }
 
     private fun getListStartY() = (if (filterExpanded) 160 else 64) + 4
-    private fun getMaxVisibleRows() = maxOf(0, (height - getListStartY() - 48) / 24)
+    private fun getMaxVisibleRows() = maxOf(0, (height - getListStartY() - 68) / 24)
 
     private fun rebuildBuyButtons() {
         buyButtons.forEach { remove(it) }
@@ -314,16 +302,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         closeConfirmDialog()
     }
 
-    private fun displayedListings(): List<IndexedValue<ListingEntry>> {
-        var result = listings.withIndex().toList()
-        // Client-side search: matches English name + translated name
-        val query = searchField?.text?.trim()?.takeIf { it.isNotEmpty() } ?: return result
-        result = result.filter { (origIndex, entry) ->
-            entry.species.contains(query, ignoreCase = true) ||
-            (iconData[origIndex]?.displayName?.contains(query, ignoreCase = true) == true)
-        }
-        return result
-    }
+    private fun displayedListings(): List<IndexedValue<ListingEntry>> = listings.withIndex().toList()
 
     // ── Gender filter ──
 
@@ -351,7 +330,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     // ── Type filter ──
 
     private fun typeButtonText(): Text {
-        val (key, _) = typeOptions.getOrElse(typeFilterIndex) { "" to "" }
+        val key = typeOptions.getOrElse(typeFilterIndex) { "" }
         val label = if (key.isEmpty()) Text.translatable("cobblemarket.gui.filter_any")
             else Text.translatable("cobblemon.type.$key")
         return Text.translatable("cobblemarket.gui.type").append(": ").append(label)
@@ -359,8 +338,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     private fun cycleType() {
         typeFilterIndex = (typeFilterIndex + 1) % typeOptions.size
-        val (key, _) = typeOptions[typeFilterIndex]
-        typeFilter = key
+        typeFilter = typeOptions[typeFilterIndex]
         currentPage = 1
         typeButton.message = typeButtonText()
         refreshData()
@@ -430,7 +408,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         genderFilter = ""
         typeFilter = ""
         typeFilterIndex = 0
-        sortMode = "PRICE_ASC"
+        sortMode = "NEWEST"
         currentPage = 1
         for (i in 0..5) minIvs[i] = -1
         hpField?.text = ""
@@ -519,7 +497,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
     private fun refreshData(ivs: IntArray = minIvs) {
         ClientPlayNetworking.send(
             RequestMarketPayload(
-                speciesFilter = "",  // Searching is client-side via displayedListings()
+                speciesFilter = searchField?.text?.trim().orEmpty(),
                 shinyOnly = shinyOnly,
                 minLevel = 0,
                 maxLevel = 100,
@@ -820,10 +798,19 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         val confirmX = centerX - btnW - 5
         val cancelX = centerX + 5
         if (mx in confirmX..(confirmX + btnW) && my in btnY..(btnY + btnH)) {
+            playClickSound()
             if (cancelEntry != null) confirmCancel() else confirmPurchase()
         } else if (mx in cancelX..(cancelX + btnW) && my in btnY..(btnY + btnH)) {
+            playClickSound()
             closeConfirmDialog()
         }
+    }
+
+    private fun playClickSound() {
+        client?.soundManager?.play(PositionedSoundInstance.master(
+            SoundEvent.of(Identifier.of("cobblemarket", "button_click")),
+            1.0f
+        ))
     }
 
     // ── 3D Pokemon icon rendering ──
@@ -841,10 +828,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             if (entry.shiny) context.drawTextWithShadow(textRenderer, "☆", x + size - 6, y - 5, 0xFFFF55)
             return
         }
+        val matrices = context.matrices
+        matrices.push()
         try {
-            val matrices = context.matrices
             context.enableScissor(x - 1, y + 1, x + size + 2, y + size + 2)
-            matrices.push()
             matrices.translate(x + size / 2.0, y + 1.0, 0.0)
             matrices.scale(size / 25f * 2.5f, size / 25f * 2.5f, 1f)
 
@@ -864,6 +851,9 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             matrices.pop()
             context.disableScissor()
         } catch (e: Exception) {
+            // 清理残留的 scissor/matrices，避免泄漏
+            context.disableScissor()
+            matrices.pop()
             // Fallback on error
             val entry = listings.getOrNull(index) ?: return
             val tc = typeColor(entry.primaryType)
@@ -936,8 +926,16 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
     override fun resize(client: net.minecraft.client.MinecraftClient, width: Int, height: Int) {
         val oldSearch = searchField?.text ?: ""
+        val oldIv = if (filterExpanded) arrayOf(
+            hpField?.text ?: "", atkField?.text ?: "", defField?.text ?: "",
+            spaField?.text ?: "", spdField?.text ?: "", speField?.text ?: ""
+        ) else emptyArray()
         super.resize(client, width, height)
         searchField?.text = oldSearch
+        if (filterExpanded) {
+            val fields = arrayOf(hpField, atkField, defField, spaField, spdField, speField)
+            oldIv.forEachIndexed { i, t -> fields[i]?.text = t }
+        }
     }
 
     private var pendingBalance = 0
