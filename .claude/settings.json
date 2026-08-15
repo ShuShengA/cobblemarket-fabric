@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "acceptEdits": true,
+    "allow": [
+      "Bash(javap *)",
+      "Bash(unzip -l *)",
+      "Bash(jar tf *)"
+    ]
+  }
+}
