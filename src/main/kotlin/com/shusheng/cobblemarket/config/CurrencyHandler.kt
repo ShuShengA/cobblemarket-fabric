@@ -46,7 +46,11 @@ object CurrencyHandler {
                 if (bal < amt) return false
                 p.`cobbleDollars$setCobbleDollars`(bal.subtract(amt))
                 true
-            } catch (e: Exception) { false }
+            } catch (e: Throwable) {
+                // 捕获 Throwable：mod 被移除时 cast 可能抛 NoClassDefFoundError
+                CobbleMarket.LOGGER.error("Failed to remove {} currency from {}", amount, player.uuid, e)
+                false
+            }
         }
         val inv = player.inventory
         var total = 0
@@ -64,28 +68,42 @@ object CurrencyHandler {
                 if (remaining <= 0) break
             }
         }
+        player.inventory.markDirty()
         return true
     }
 
-    fun give(player: ServerPlayerEntity, amount: Long) {
-        if (amount <= 0L) return
+    /**
+     * 发放货币，返回实际发放量。
+     * CobbleDollars 模式：全额发放或 0（失败）；物品模式：只放背包、不落地，
+     * 放多少算多少（背包满即停），未发放部分由调用方保留在账本。
+     */
+    fun give(player: ServerPlayerEntity, amount: Long): Long {
+        if (amount <= 0L) return 0L
         if (useCobbleDollars) {
-            try {
+            return try {
                 val p = player as CobbleDollarsPlayer
                 val bal = p.`cobbleDollars$getCobbleDollars`()
                 p.`cobbleDollars$setCobbleDollars`(bal.add(BigInteger.valueOf(amount)))
-            } catch (_: Exception) {}
-            return
+                amount
+            } catch (e: Throwable) {
+                // 捕获 Throwable：mod 被移除时 cast 可能抛 NoClassDefFoundError
+                CobbleMarket.LOGGER.error("Failed to give {} currency to {}", amount, player.uuid, e)
+                0L
+            }
         }
+        var given = 0L
         var remaining = amount
         while (remaining > 0L) {
             val chunk = minOf(remaining, Int.MAX_VALUE.toLong()).toInt()
             val stack = ItemStack(currencyItem, chunk)
-            if (!player.inventory.insertStack(stack)) {
-                player.dropItem(stack, false)
-            }
+            // insertStack 返回 true 只表示"至少放了一个"（部分放入也返回 true）；
+            // 记账必须看 stack.count（剩余量），不能用返回值判断是否全部放入
+            player.inventory.insertStack(stack)
+            given += (chunk - stack.count).toLong()
+            if (!stack.isEmpty) break // 没放完（背包满）：剩余不再发放，由调用方留在账本
             remaining -= chunk
         }
+        return given
     }
 
     fun getName(): String {

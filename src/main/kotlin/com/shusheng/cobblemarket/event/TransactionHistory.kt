@@ -47,7 +47,11 @@ class TransactionHistory private constructor() : PersistentState() {
             { nbt, _ ->
                 TransactionHistory().apply {
                     nbt.getList("records", NbtList.COMPOUND_TYPE.toInt()).forEach { element ->
-                        records.add(TransactionRecord.fromNbt(element as NbtCompound))
+                        try {
+                            records.add(TransactionRecord.fromNbt(element as NbtCompound))
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted transaction record: {}", e.message)
+                        }
                     }
                 }
             },

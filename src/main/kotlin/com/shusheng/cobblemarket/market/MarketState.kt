@@ -10,6 +10,8 @@ import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.world.PersistentState
 import java.util.UUID
 
+private const val EXPIRE_CHECK_INTERVAL_NANOS = 15_000_000_000L
+
 class MarketState private constructor() : PersistentState() {
 
     private val listings = mutableMapOf<UUID, MarketListing>()
@@ -80,12 +82,21 @@ class MarketState private constructor() : PersistentState() {
     fun countActiveBySeller(sellerUuid: UUID): Int =
         listings.values.count { it.sellerUuid == sellerUuid && it.isActive() }
 
+    // 过期检查节流：避免每个网络包都触发一次全表扫描。
+    // 节流间隔用 nanoTime（单调时钟，时钟回拨不受影响）；挂单过期判定仍用 wall-clock 的 currentTime。
+    private var lastExpireCheckNanos = -1L
+
     fun expireOldListings(currentTime: Long) {
+        val nowNanos = System.nanoTime()
+        if (lastExpireCheckNanos >= 0L && nowNanos - lastExpireCheckNanos < EXPIRE_CHECK_INTERVAL_NANOS) return
+        lastExpireCheckNanos = nowNanos
         val expired = listings.values.filter { it.isActive() && it.expiresAt <= currentTime }
         expired.forEach { listing ->
             listing.status = ListingStatus.EXPIRED
+            listing.returnedAt = currentTime
             pendingReturns.getOrPut(listing.sellerUuid) { mutableListOf() }.add(listing)
         }
+        cleanupOldReturns(currentTime)
         if (expired.isNotEmpty()) markDirty()
     }
 
@@ -93,8 +104,46 @@ class MarketState private constructor() : PersistentState() {
         pendingReturns[playerUuid] ?: emptyList()
 
     fun addPendingReturn(playerUuid: UUID, listing: MarketListing) {
+        listing.returnedAt = System.currentTimeMillis()
         pendingReturns.getOrPut(playerUuid) { mutableListOf() }.add(listing)
         markDirty()
+    }
+
+    /** 按配置清理超期未领取的退回（配置 0 = 永不清理）；与过期检查共用节流窗口。 */
+    private fun cleanupOldReturns(currentTime: Long) {
+        val retentionDays = com.shusheng.cobblemarket.config.CobbleMarketConfig.pendingReturnRetentionDays
+        if (retentionDays <= 0) return
+        val retentionMs = retentionDays * 24L * 60 * 60 * 1000
+        var removedCount = 0
+        pendingReturns.entries.toList().forEach { (uuid, returns) ->
+            val kept = returns.filter { listing ->
+                // 旧存档条目没有 returnedAt：用过期时间近似进入时间（误差 ≤ 节流窗口）
+                val enteredAt = listing.returnedAt ?: listing.expiresAt
+                if (currentTime - enteredAt > retentionMs) {
+                    listings.remove(listing.id)
+                    removedCount++
+                    com.shusheng.cobblemarket.util.CleanupLogger.log(
+                        category = "POKEMON",
+                        playerUuid = uuid,
+                        listingId = listing.id,
+                        detail = listing.species,
+                        price = listing.price,
+                        retainedDays = (currentTime - enteredAt) / 86_400_000L
+                    )
+                    false
+                } else true
+            }
+            if (kept.size != returns.size) {
+                if (kept.isEmpty()) pendingReturns.remove(uuid) else pendingReturns[uuid] = kept.toMutableList()
+            }
+        }
+        if (removedCount > 0) {
+            markDirty()
+            CobbleMarket.LOGGER.warn(
+                "Cleaned up {} unclaimed pokemon returns after {} days retention",
+                removedCount, retentionDays
+            )
+        }
     }
 
     fun claimReturns(player: ServerPlayerEntity): Int {
@@ -102,9 +151,21 @@ class MarketState private constructor() : PersistentState() {
         val remaining = mutableListOf<MarketListing>()
         var returned = 0
         playerReturns.forEach { listing ->
-            if (returnPokemon(player, listing)) {
+            val success = try {
+                returnPokemon(player, listing)
+            } catch (e: Exception) {
+                // 单条 NBT 损坏等异常不阻塞其他退款
+                CobbleMarket.LOGGER.warn("Failed to return pokemon listing {} to {}: {}", listing.id, player.uuid, e.message)
+                false
+            }
+            if (success) {
                 returned++
-                com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(player.uuid, listing))
+                try {
+                    com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(player.uuid, listing))
+                } catch (e: Exception) {
+                    // 事件订阅者异常只影响日志，精灵已归还，绝不重新入队（否则会重复发放）
+                    CobbleMarket.LOGGER.warn("Return event handler failed for listing {}: {}", listing.id, e.message)
+                }
             } else {
                 remaining.add(listing)
             }
@@ -121,25 +182,30 @@ class MarketState private constructor() : PersistentState() {
     private fun returnPokemon(player: ServerPlayerEntity, listing: MarketListing): Boolean {
         val pokemon = com.cobblemon.mod.common.pokemon.Pokemon()
             .loadFromNBT(player.serverWorld.registryManager, listing.pokemonNbt)
-        val party = Cobblemon.storage.getParty(player)
-        if (party.add(pokemon)) return true
-        val pc = Cobblemon.storage.getPC(player)
-        return pc.add(pokemon)
+        // Cobblemon 的 Party.add 在队伍满时自动转入 PC（溢出兜底），无需额外处理
+        return Cobblemon.storage.getParty(player).add(pokemon)
     }
 
     fun markModified() = markDirty()
 
-    fun addPendingBalance(playerUuid: UUID, amount: Int) {
+    fun addPendingBalance(playerUuid: UUID, amount: Long) {
         pendingBalances[playerUuid] = (pendingBalances[playerUuid] ?: 0L) + amount
         markDirty()
     }
 
     fun getPendingBalance(playerUuid: UUID): Long = pendingBalances[playerUuid] ?: 0L
 
-    fun claimPendingBalance(playerUuid: UUID): Long {
-        val amount = pendingBalances.remove(playerUuid) ?: 0L
-        if (amount > 0L) markDirty()
-        return amount
+    /** 领取至多 [upTo] 的余额（差额留在账本），返回实际领取量；单次调用内完成，避免调用方分两步补差。 */
+    fun claimPendingBalance(playerUuid: UUID, upTo: Long): Long {
+        val amount = pendingBalances[playerUuid] ?: return 0L
+        val taken = minOf(amount, upTo)
+        if (taken >= amount) {
+            pendingBalances.remove(playerUuid)
+        } else {
+            pendingBalances[playerUuid] = amount - taken
+        }
+        if (taken > 0L) markDirty()
+        return taken
     }
 
     override fun writeNbt(nbt: NbtCompound, registryLookup: RegistryWrapper.WrapperLookup): NbtCompound {
@@ -167,21 +233,37 @@ class MarketState private constructor() : PersistentState() {
             { nbt, _ ->
                 MarketState().apply {
                     nbt.getList("listings", NbtList.COMPOUND_TYPE.toInt()).forEach { element ->
-                        val listing = MarketListing.fromNbt(element as NbtCompound)
-                        listings[listing.id] = listing
+                        try {
+                            val listing = MarketListing.fromNbt(element as NbtCompound)
+                            listings[listing.id] = listing
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted market listing: {}", e.message)
+                        }
                     }
                     val balances = nbt.getCompound("pendingBalances")
                     balances.keys.forEach { key ->
-                        pendingBalances[UUID.fromString(key)] = balances.getLong(key)
+                        try {
+                            pendingBalances[UUID.fromString(key)] = balances.getLong(key)
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted pending balance for '{}': {}", key, e.message)
+                        }
                     }
                     val returns = nbt.getCompound("pendingReturns")
                     returns.keys.forEach { key ->
-                        val rlist = returns.getList(key, NbtList.COMPOUND_TYPE.toInt())
-                        val mlist = mutableListOf<MarketListing>()
-                        rlist.forEach { element ->
-                            mlist.add(MarketListing.fromNbt(element as NbtCompound))
+                        try {
+                            val rlist = returns.getList(key, NbtList.COMPOUND_TYPE.toInt())
+                            val mlist = mutableListOf<MarketListing>()
+                            rlist.forEach { element ->
+                                try {
+                                    mlist.add(MarketListing.fromNbt(element as NbtCompound))
+                                } catch (e: Exception) {
+                                    CobbleMarket.LOGGER.warn("Skipping corrupted returned listing for '{}': {}", key, e.message)
+                                }
+                            }
+                            pendingReturns[UUID.fromString(key)] = mlist
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted pending return entry '{}': {}", key, e.message)
                         }
-                        pendingReturns[UUID.fromString(key)] = mlist
                     }
                 }
             },

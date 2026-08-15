@@ -76,18 +76,22 @@ class PokemonBlacklistState private constructor() : PersistentState() {
             { nbt, _ ->
                 PokemonBlacklistState().apply {
                     nbt.getList("entries", NbtList.COMPOUND_TYPE.toInt()).forEach { element ->
-                        val c = element as NbtCompound
-                        val entry = PokemonBlacklistEntry(
-                            id = c.getUuid("id"),
-                            speciesId = c.getString("speciesId"),
-                            ivHp = c.getInt("ivHp"),
-                            ivAtk = c.getInt("ivAtk"),
-                            ivDef = c.getInt("ivDef"),
-                            ivSpAtk = c.getInt("ivSpAtk"),
-                            ivSpDef = c.getInt("ivSpDef"),
-                            ivSpd = c.getInt("ivSpd")
-                        )
-                        entries[entry.id] = entry
+                        try {
+                            val c = element as NbtCompound
+                            val entry = PokemonBlacklistEntry(
+                                id = c.getUuid("id"),
+                                speciesId = c.getString("speciesId"),
+                                ivHp = c.getInt("ivHp"),
+                                ivAtk = c.getInt("ivAtk"),
+                                ivDef = c.getInt("ivDef"),
+                                ivSpAtk = c.getInt("ivSpAtk"),
+                                ivSpDef = c.getInt("ivSpDef"),
+                                ivSpd = c.getInt("ivSpd")
+                            )
+                            entries[entry.id] = entry
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted pokemon blacklist entry: {}", e.message)
+                        }
                     }
                 }
             },

@@ -13,7 +13,9 @@ data class ItemListing(
     val price: Int,
     val createdAt: Long,
     val expiresAt: Long,
-    var status: ListingStatus
+    var status: ListingStatus,
+    /** 进入待领取退回列表的时间戳；null = 从未进入（旧存档兼容） */
+    var returnedAt: Long? = null
 ) {
     fun isActive(): Boolean = status == ListingStatus.ACTIVE
 
@@ -28,6 +30,7 @@ data class ItemListing(
         putLong("createdAt", createdAt)
         putLong("expiresAt", expiresAt)
         putString("status", status.name)
+        returnedAt?.let { putLong("returnedAt", it) }
     }
 
     companion object {
@@ -41,7 +44,8 @@ data class ItemListing(
             price = nbt.getInt("price"),
             createdAt = nbt.getLong("createdAt"),
             expiresAt = nbt.getLong("expiresAt"),
-            status = ListingStatus.valueOf(nbt.getString("status"))
+            status = ListingStatus.valueOf(nbt.getString("status")),
+            returnedAt = if (nbt.contains("returnedAt")) nbt.getLong("returnedAt") else null
         )
     }
 }

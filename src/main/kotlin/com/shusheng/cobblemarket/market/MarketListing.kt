@@ -31,7 +31,9 @@ data class MarketListing(
     val createdAt: Long,
     val expiresAt: Long,
     var status: ListingStatus,
-    val extraData: Map<String, String> = emptyMap()
+    val extraData: Map<String, String> = emptyMap(),
+    /** 进入待领取退回列表的时间戳；null = 从未进入（旧存档兼容） */
+    var returnedAt: Long? = null
 ) {
     fun isActive(): Boolean = status == ListingStatus.ACTIVE
 
@@ -50,6 +52,7 @@ data class MarketListing(
         putLong("createdAt", createdAt)
         putLong("expiresAt", expiresAt)
         putString("status", status.name)
+        returnedAt?.let { putLong("returnedAt", it) }
         val extra = NbtCompound()
         extraData.forEach { (k, v) -> extra.putString(k, v) }
         put("extraData", extra)
@@ -72,7 +75,8 @@ data class MarketListing(
                 createdAt = nbt.getLong("createdAt"),
                 expiresAt = nbt.getLong("expiresAt"),
                 status = ListingStatus.valueOf(nbt.getString("status")),
-                extraData = extraMap
+                extraData = extraMap,
+                returnedAt = if (nbt.contains("returnedAt")) nbt.getLong("returnedAt") else null
             )
         }
     }

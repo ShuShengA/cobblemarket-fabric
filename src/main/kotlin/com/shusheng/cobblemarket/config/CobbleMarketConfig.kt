@@ -25,7 +25,9 @@ object CobbleMarketConfig {
         private set
     var maxItemListingsPerPlayer: Int = 0
         private set
-    var listingDurationDays: Int = 7
+    var listingDurationDays: Int = 14
+        private set
+    var pendingReturnRetentionDays: Int = 30
         private set
 
     fun load() {
@@ -47,7 +49,8 @@ object CobbleMarketConfig {
                 itemListingFeePercent = (data["itemListingFeePercent"] as? Double) ?: legacyFee ?: 5.0
                 maxPokemonListingsPerPlayer = (data["maxPokemonListingsPerPlayer"] as? Double)?.toInt() ?: 0
                 maxItemListingsPerPlayer = (data["maxItemListingsPerPlayer"] as? Double)?.toInt() ?: 0
-                listingDurationDays = (data["listingDurationDays"] as? Double)?.toInt() ?: 7
+                listingDurationDays = (data["listingDurationDays"] as? Double)?.toInt() ?: 14
+                pendingReturnRetentionDays = (data["pendingReturnRetentionDays"] as? Double)?.toInt() ?: 30
             } catch (e: Exception) {
                 CobbleMarket.LOGGER.warn("Failed to load config: ${e.message}")
                 save()
@@ -65,14 +68,16 @@ object CobbleMarketConfig {
                 "itemListingFeePercent" to "物品市场上架手续费百分比（0=免手续费）/ Item listing fee percentage (0=no fee)",
                 "maxPokemonListingsPerPlayer" to "每个玩家同时活跃的精灵上架数量上限（0=不限制）/ Max active Pokemon listings per player (0=unlimited)",
                 "maxItemListingsPerPlayer" to "每个玩家同时活跃的物品上架数量上限（0=不限制）/ Max active item listings per player (0=unlimited)",
-                "listingDurationDays" to "上架过期天数 / Listing duration in days"
+                "listingDurationDays" to "上架过期天数 / Listing duration in days",
+                "pendingReturnRetentionDays" to "待领取退回保留天数（自进入退回列表起算）。超期未领取的退回将被永久删除，资产不保留！0 = 永不清理。/ Days to keep unclaimed returns (counted from entering the return list). Overdue unclaimed returns will be permanently DELETED with NO refund! 0 = keep forever."
             ),
             "currency" to mapOf("cobbledollars" to cobbledollars, "item" to currencyItem),
             "pokemonListingFeePercent" to pokemonListingFeePercent,
             "itemListingFeePercent" to itemListingFeePercent,
             "maxPokemonListingsPerPlayer" to maxPokemonListingsPerPlayer,
             "maxItemListingsPerPlayer" to maxItemListingsPerPlayer,
-            "listingDurationDays" to listingDurationDays
+            "listingDurationDays" to listingDurationDays,
+            "pendingReturnRetentionDays" to pendingReturnRetentionDays
         )
         configFile.writeText(gson.toJson(data))
     }

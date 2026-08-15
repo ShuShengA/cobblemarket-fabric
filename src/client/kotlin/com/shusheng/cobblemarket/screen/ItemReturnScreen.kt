@@ -25,6 +25,7 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
     private var loaded = false
     private var hoveredSlot = -1
     private var currentPage = 1
+    private var totalPages = 1
     private var prevButton: NineSliceButton? = null
     private var nextButton: NineSliceButton? = null
     private var claimButton: NineSliceButton? = null
@@ -34,18 +35,23 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
     private fun rows() = maxOf(0, (height - getGridStartY() - 72) / (slotSize + gap))
 
     private fun pageSize() = columns() * rows()
-    private fun totalPages(): Int {
-        val size = pageSize()
-        if (size <= 0) return 1
-        return ((items.size - 1) / size) + 1
+
+    // 协议分页：服务端按请求的 pageSize 切片，本地只做防溢出截断
+    private fun pageItems(): List<ItemEntry> = items.take(maxOf(0, pageSize()))
+
+    private fun requestData() {
+        // 页大小上限 42 并向下对齐到列数倍数，保证每页都是整行、不出现半行空格
+        val cols = columns().coerceAtLeast(1)
+        val clamped = minOf(pageSize(), 42)
+        val size = (clamped / cols * cols).coerceAtLeast(1)
+        ClientPlayNetworking.send(RequestItemReturnPayload(currentPage, size))
     }
-    private fun pageItems(): List<ItemEntry> {
-        val size = pageSize()
-        if (size <= 0) return emptyList()
-        return items.drop((currentPage - 1) * size).take(size)
+    private fun prevPage() {
+        if (currentPage > 1) { currentPage--; requestData() }
     }
-    private fun prevPage() { if (currentPage > 1) currentPage-- }
-    private fun nextPage() { if (currentPage < totalPages()) currentPage++ }
+    private fun nextPage() {
+        if (currentPage < totalPages) { currentPage++; requestData() }
+    }
 
     override fun init() {
         super.init()
@@ -65,10 +71,8 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
         nextButton = NineSliceButton(leftX + panelWidth - 80, gridBottom, 80, 20, Text.translatable("cobblemarket.gui.next"), { nextPage() })
         addDrawableChild(nextButton)
 
-        if (!loaded) {
-            ClientPlayNetworking.send(RequestItemReturnPayload())
-            loaded = true
-        }
+        requestData()
+        loaded = true
     }
 
     private fun claimAll() {
@@ -77,13 +81,15 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
 
     fun onReturnData(payload: ItemReturnDataPayload) {
         items = payload.items
-        currentPage = 1
+        totalPages = payload.totalPages
+        currentPage = payload.currentPage
+        loaded = true
     }
 
     fun onMarketResult(payload: MarketResultPayload) {
         client?.player?.sendMessage(payload.message.copy().formatted(if (payload.success) Formatting.GREEN else Formatting.RED), false)
-        loaded = false
-        ClientPlayNetworking.send(RequestItemReturnPayload())
+        currentPage = 1
+        requestData()
     }
 
     private fun drawPanelSlice(context: DrawContext, texture: Identifier, x: Int, y: Int) {
@@ -123,7 +129,7 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
             Text.translatable("cobblemarket.return.title").formatted(Formatting.GOLD),
             centerX, 20, 0xFFFFFF)
 
-        val tp = totalPages()
+        val tp = totalPages
         if (currentPage > tp) currentPage = tp
         if (currentPage < 1) currentPage = 1
         context.drawCenteredTextWithShadow(textRenderer,
@@ -177,7 +183,7 @@ class ItemReturnScreen : Screen(Text.translatable("cobblemarket.return.title")) 
         }
 
         prevButton?.active = currentPage > 1
-        nextButton?.active = currentPage < totalPages()
+        nextButton?.active = currentPage < totalPages
         claimButton?.active = items.isNotEmpty()
     }
 

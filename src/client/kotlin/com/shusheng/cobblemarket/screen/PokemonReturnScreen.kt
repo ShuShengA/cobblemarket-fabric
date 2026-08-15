@@ -28,6 +28,7 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
     private var loaded = false
     private var hoveredRow = -1
     private var currentPage = 1
+    private var totalPages = 1
     private var prevButton: NineSliceButton? = null
     private var nextButton: NineSliceButton? = null
     private var claimButton: NineSliceButton? = null
@@ -38,19 +39,19 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
     private fun getListStartY() = 48
     private fun maxVisible() = maxOf(0, (height - getListStartY() - 72) / rowHeight)
 
-    private fun pageSize() = maxVisible()
-    private fun totalPages(): Int {
-        val size = pageSize()
-        if (size <= 0) return 1
-        return ((pokemon.size - 1) / size) + 1
+    // 协议分页：服务端按请求的 pageSize 切片，本地只做防溢出截断
+    private fun pageItems(): List<PokemonPreview> = pokemon.take(maxOf(0, maxVisible()))
+
+    private fun requestData() {
+        val size = minOf(maxVisible(), 30).coerceAtLeast(1)
+        ClientPlayNetworking.send(RequestPokemonReturnPayload(currentPage, size))
     }
-    private fun pageItems(): List<PokemonPreview> {
-        val size = pageSize()
-        if (size <= 0) return emptyList()
-        return pokemon.drop((currentPage - 1) * size).take(size)
+    private fun prevPage() {
+        if (currentPage > 1) { currentPage--; requestData() }
     }
-    private fun prevPage() { if (currentPage > 1) currentPage-- }
-    private fun nextPage() { if (currentPage < totalPages()) currentPage++ }
+    private fun nextPage() {
+        if (currentPage < totalPages) { currentPage++; requestData() }
+    }
 
     private fun buildIconCache() {
         iconData.clear()
@@ -81,10 +82,8 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
         nextButton = NineSliceButton(leftX + panelWidth - 80, listBottom, 80, 20, Text.translatable("cobblemarket.gui.next"), { nextPage() })
         addDrawableChild(nextButton)
 
-        if (!loaded) {
-            ClientPlayNetworking.send(RequestPokemonReturnPayload())
-            loaded = true
-        }
+        requestData()
+        loaded = true
     }
 
     private fun claimAll() {
@@ -93,14 +92,16 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
 
     fun onReturnData(payload: PokemonReturnDataPayload) {
         pokemon = payload.pokemon
-        currentPage = 1
+        totalPages = payload.totalPages
+        currentPage = payload.currentPage
+        loaded = true
         buildIconCache()
     }
 
     fun onMarketResult(payload: MarketResultPayload) {
         client?.player?.sendMessage(payload.message.copy().formatted(if (payload.success) Formatting.GREEN else Formatting.RED), false)
-        loaded = false
-        ClientPlayNetworking.send(RequestPokemonReturnPayload())
+        currentPage = 1
+        requestData()
     }
 
     private fun typeColor(typeKey: String): Int = when (typeKey.substringAfterLast(".").lowercase()) {
@@ -166,7 +167,7 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
             Text.translatable("cobblemarket.return.title").formatted(Formatting.GOLD),
             centerX, 20, 0xFFFFFF)
 
-        val tp = totalPages()
+        val tp = totalPages
         if (currentPage > tp) currentPage = tp
         if (currentPage < 1) currentPage = 1
         context.drawCenteredTextWithShadow(textRenderer,
@@ -186,7 +187,7 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
         val visible = pageItems()
         val slotTexture = Identifier.of("cobblemarket", "textures/gui/pokemon_slot.png")
 
-        val startOffset = (currentPage - 1) * pageSize()
+        val startOffset = 0
         visible.forEachIndexed { i, p ->
             val y = startY + i * rowHeight
             val iconX = leftX + 2
@@ -198,6 +199,7 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
             context.drawTexture(slotTexture, 0, 0, 0f, 0f, 66, 66, 66, 66)
             context.matrices.pop()
 
+            // iconData 按当前页重建，索引即行号
             renderPokemonIcon(context, startOffset + i, iconX, iconY, iconSize)
 
             val sm = if (p.shiny) " ☆" else ""
@@ -211,7 +213,7 @@ class PokemonReturnScreen : Screen(Text.translatable("cobblemarket.return.title"
         }
 
         prevButton?.active = currentPage > 1
-        nextButton?.active = currentPage < totalPages()
+        nextButton?.active = currentPage < totalPages
         claimButton?.active = pokemon.isNotEmpty()
     }
 

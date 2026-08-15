@@ -604,7 +604,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
 
         // Pending balance (right of collect button)
         context.drawTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.gui.pending_balance", pendingBalance).string,
+            Text.translatable("cobblemarket.gui.pending_balance", com.shusheng.cobblemarket.client.formatPriceLong(pendingBalance)).string,
             leftX, 31, 0x55FF55)
 
         // Page indicator
@@ -711,8 +711,10 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
             val levelText = Text.translatable("cobblemarket.gui.lv").string + entry.level
             context.drawText(textRenderer, levelText, leftX + 135, y + 7, 0x000000, false)
 
-            // Price
-            context.drawTextWithShadow(textRenderer, "${entry.price} ◆", leftX + 185, y + 7, 0x55FFFF)
+            // Price（右对齐到按钮左缘：价格再长也只向左延伸，不会遮按钮）
+            val priceText = "${com.shusheng.cobblemarket.client.formatPrice(entry.price)} ◆"
+            val btnLeft = leftX + panelWidth - 42
+            context.drawTextWithShadow(textRenderer, priceText, btnLeft - textRenderer.getWidth(priceText) - 4, y + 7, 0x55FFFF)
         }
 
         // Tooltip on hover
@@ -936,7 +938,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         lines.add("  $spd:${entry.ivsSpDef}" to ivColors[4])
         lines.add("  $spe:${entry.ivsSpd}" to ivColors[5])
         lines.add("${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w)
-        lines.add("${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${com.shusheng.cobblemarket.client.formatPrice(entry.price)} ${entry.currencyName}" to w)
 
         var maxWidth = 0
         lines.forEach { maxWidth = maxOf(maxWidth, textRenderer.getWidth(it.first)) }
@@ -1000,7 +1002,7 @@ class MarketScreen : Screen(Text.translatable("cobblemarket.gui.title")) {
         }
     }
 
-    private var pendingBalance = 0
+    private var pendingBalance = 0L
 
     fun onMarketData(payload: MarketDataPayload) {
         listings = payload.entries

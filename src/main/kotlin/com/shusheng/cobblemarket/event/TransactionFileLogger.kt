@@ -10,6 +10,8 @@ import java.util.Date
 
 object TransactionFileLogger {
 
+    private val DANGEROUS_PREFIXES = setOf('=', '+', '-', '@')
+
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd")
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
     private var currentDate = ""
@@ -66,8 +68,12 @@ object TransactionFileLogger {
         return if (idx >= 0) key.substring(idx + marker.length).removeSuffix(".name") else key
     }
 
-    private fun csvEscape(s: String): String =
-        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
-            "\"" + s.replace("\"", "\"\"") + "\""
-        } else s
+    private fun csvEscape(s: String): String {
+        // 防 CSV 公式注入：Excel/WPS 会把以 = + - @ 开头的单元格当公式执行，
+        // 前缀单引号强制按文本处理（Excel 中单引号不显示）
+        val guarded = if (s.isNotEmpty() && s[0] in DANGEROUS_PREFIXES) "'$s" else s
+        return if (guarded.contains(",") || guarded.contains("\"") || guarded.contains("\n") || guarded.contains("\r")) {
+            "\"" + guarded.replace("\"", "\"\"") + "\""
+        } else guarded
+    }
 }

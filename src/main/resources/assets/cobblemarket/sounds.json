@@ -6,5 +6,29 @@
         "stream": false
       }
     ]
+  },
+  "open_entry": {
+    "sounds": [
+      {
+        "name": "cobblemarket:entry",
+        "stream": false
+      }
+    ]
+  },
+  "result_success": {
+    "sounds": [
+      {
+        "name": "cobblemarket:success",
+        "stream": false
+      }
+    ]
+  },
+  "result_fail": {
+    "sounds": [
+      {
+        "name": "cobblemarket:fail",
+        "stream": false
+      }
+    ]
   }
 }

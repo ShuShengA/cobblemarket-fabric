@@ -32,7 +32,7 @@ class ItemMarketScreen : Screen(Text.translatable("cobblemarket.item.title")) {
     private var entries = listOf<ItemEntry>()
     private var currentPage = 1
     private var totalPages = 1
-    private var pendingBalance = 0
+    private var pendingBalance = 0L
 
     private var searchField: TextFieldWidget? = null
     private var sortMode = "NEWEST"
@@ -219,7 +219,7 @@ class ItemMarketScreen : Screen(Text.translatable("cobblemarket.item.title")) {
             centerX, 14, 0xFFFFFF)
 
         context.drawTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.gui.pending_balance", pendingBalance).string,
+            Text.translatable("cobblemarket.gui.pending_balance", com.shusheng.cobblemarket.client.formatPriceLong(pendingBalance)).string,
             leftX, 31, 0x55FF55)
 
         context.drawCenteredTextWithShadow(textRenderer,
@@ -266,7 +266,7 @@ class ItemMarketScreen : Screen(Text.translatable("cobblemarket.item.title")) {
             val countText = "×${entry.count}"
             context.drawText(textRenderer, countText, x + slotSize - 2 - textRenderer.getWidth(countText), y + 2, 0xFFFFFF, false)
 
-            val priceText = "${entry.price}"
+            val priceText = com.shusheng.cobblemarket.client.formatPriceShort(entry.price)
             context.drawText(textRenderer, priceText, x + 3, y + slotSize - 10, 0x55FFFF, false)
         }
 
@@ -285,7 +285,7 @@ class ItemMarketScreen : Screen(Text.translatable("cobblemarket.item.title")) {
             lines.add(Text.literal(entry.itemId))
         }
         lines.add(Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).append(" ").append(entry.sellerName))
-        lines.add(Text.translatable("cobblemarket.item.tooltip_price").formatted(Formatting.GRAY).append(" ").append("${entry.price} ${entry.currencyName}"))
+        lines.add(Text.translatable("cobblemarket.item.tooltip_price").formatted(Formatting.GRAY).append(" ").append("${com.shusheng.cobblemarket.client.formatPrice(entry.price)} ${entry.currencyName}"))
         lines.add(Text.literal("×${entry.count}"))
 
         var maxWidth = 0

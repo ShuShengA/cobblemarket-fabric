@@ -32,13 +32,24 @@ object CobbleMarket : ModInitializer {
 		com.shusheng.cobblemarket.event.TransactionLogger.register()
 		TransactionHistory.register()
 
+		ServerLifecycleEvents.SERVER_STARTING.register { server ->
+			// 世界加载前校验 PersistentState 数据文件：损坏则从 .bak 恢复，再制作新备份
+			com.shusheng.cobblemarket.util.StateBackup.verifyAndBackup(server)
+		}
 		ServerLifecycleEvents.SERVER_STARTED.register { server ->
 			TransactionHistory.historyRef = TransactionHistory.get(server)
 		}
 		ServerLifecycleEvents.SERVER_STOPPING.register {
 			TransactionHistory.historyRef = null
 		}
+		ServerLifecycleEvents.SERVER_STOPPED.register { server ->
+			// 正常关服保存完成后，用最新数据刷新备份
+			com.shusheng.cobblemarket.util.StateBackup.backupOnStop(server)
+		}
 
+		ServerPlayConnectionEvents.DISCONNECT.register { handler, _ ->
+			com.shusheng.cobblemarket.util.RequestThrottle.onDisconnect(handler.player.uuid)
+		}
 		ServerPlayConnectionEvents.JOIN.register { handler, _, _ ->
 			val player = handler.player
 			val state = MarketState.get(player.server)

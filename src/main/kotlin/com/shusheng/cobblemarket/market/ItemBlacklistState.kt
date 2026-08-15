@@ -43,8 +43,12 @@ class ItemBlacklistState private constructor() : PersistentState() {
             { nbt, _ ->
                 ItemBlacklistState().apply {
                     nbt.getList("blacklist", NbtList.COMPOUND_TYPE.toInt()).forEach { element ->
-                        val c = element as NbtCompound
-                        blacklist.add(c.getString("itemId"))
+                        try {
+                            val c = element as NbtCompound
+                            blacklist.add(c.getString("itemId"))
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted item blacklist entry: {}", e.message)
+                        }
                     }
                 }
             },

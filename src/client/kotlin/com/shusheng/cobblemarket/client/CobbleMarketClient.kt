@@ -34,7 +34,10 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
 import net.minecraft.client.MinecraftClient
 import net.minecraft.client.gui.widget.TextFieldWidget
 import net.minecraft.client.option.KeyBinding
+import net.minecraft.client.sound.PositionedSoundInstance
 import net.minecraft.client.util.InputUtil
+import net.minecraft.sound.SoundEvent
+import net.minecraft.util.Identifier
 import org.lwjgl.glfw.GLFW
 import org.slf4j.LoggerFactory
 
@@ -56,6 +59,7 @@ object CobbleMarketClient : ClientModInitializer {
         )
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             while (openMarketKey.wasPressed()) {
+                playEntrySound()
                 client.setScreen(MarketEntryScreen())
             }
             val ePressed = InputUtil.isKeyPressed(client.window.handle, GLFW.GLFW_KEY_E)
@@ -75,6 +79,7 @@ object CobbleMarketClient : ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(OpenMarketPayload.ID) { _, _ ->
             val client = MinecraftClient.getInstance()
             client.execute {
+                playEntrySound()
                 client.setScreen(MarketEntryScreen())
             }
         }
@@ -144,6 +149,7 @@ object CobbleMarketClient : ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(MarketResultPayload.ID) { payload, _ ->
             val client = MinecraftClient.getInstance()
             client.execute {
+                playResultSound(payload.success)
                 val screen = client.currentScreen
                 when (screen) {
                     is MarketScreen -> screen.onMarketResult(payload)
@@ -195,5 +201,25 @@ object CobbleMarketClient : ClientModInitializer {
                 com.shusheng.cobblemarket.compat.OpenMarketAction
             )
         }
+    }
+
+    /** 打开入口界面时播放音效（K 键、/market gui、smartphone 三个入口共用）。 */
+    fun playEntrySound() {
+        MinecraftClient.getInstance().soundManager.play(
+            PositionedSoundInstance.master(
+                SoundEvent.of(Identifier.of("cobblemarket", "open_entry")),
+                1.0f
+            )
+        )
+    }
+
+    /** 交易操作结果音效（成功/失败），所有 MarketResultPayload 到达时统一播放。 */
+    fun playResultSound(success: Boolean) {
+        MinecraftClient.getInstance().soundManager.play(
+            PositionedSoundInstance.master(
+                SoundEvent.of(Identifier.of("cobblemarket", if (success) "result_success" else "result_fail")),
+                1.0f
+            )
+        )
     }
 }

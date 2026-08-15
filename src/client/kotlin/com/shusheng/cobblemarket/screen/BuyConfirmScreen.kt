@@ -128,7 +128,7 @@ class BuyConfirmScreen(private val entry: ListingEntry) : Screen(Text.translatab
 
         // Price
         context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.buy_confirm.price", entry.price, entry.currencyName),
+            Text.translatable("cobblemarket.buy_confirm.price", com.shusheng.cobblemarket.client.formatPrice(entry.price), entry.currencyName),
             centerX, infoY, 0x55FFFF)
     }
 

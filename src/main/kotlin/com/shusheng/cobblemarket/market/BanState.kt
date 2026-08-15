@@ -74,17 +74,21 @@ class BanState private constructor() : PersistentState() {
             { nbt, _ ->
                 BanState().apply {
                     nbt.getList("bans", NbtList.COMPOUND_TYPE.toInt()).forEach { element ->
-                        val c = element as NbtCompound
-                        val expiresAt = if (c.contains("expiresAt")) c.getLong("expiresAt") else null
-                        val info = BanInfo(
-                            playerUuid = c.getUuid("uuid"),
-                            playerName = c.getString("name"),
-                            bannedBy = c.getString("bannedBy"),
-                            bannedAt = c.getLong("bannedAt"),
-                            expiresAt = expiresAt,
-                            reason = c.getString("reason")
-                        )
-                        bans[info.playerUuid] = info
+                        try {
+                            val c = element as NbtCompound
+                            val expiresAt = if (c.contains("expiresAt")) c.getLong("expiresAt") else null
+                            val info = BanInfo(
+                                playerUuid = c.getUuid("uuid"),
+                                playerName = c.getString("name"),
+                                bannedBy = c.getString("bannedBy"),
+                                bannedAt = c.getLong("bannedAt"),
+                                expiresAt = expiresAt,
+                                reason = c.getString("reason")
+                            )
+                            bans[info.playerUuid] = info
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.warn("Skipping corrupted ban entry: {}", e.message)
+                        }
                     }
                 }
             },

@@ -1,6 +1,7 @@
 package com.shusheng.cobblemarket.compat
 
 import com.nbp.cobblemon_smartphone.api.SmartphoneAction
+import com.shusheng.cobblemarket.client.CobbleMarketClient
 import com.shusheng.cobblemarket.screen.MarketEntryScreen
 import net.minecraft.client.MinecraftClient
 import net.minecraft.text.Text
@@ -13,6 +14,7 @@ object OpenMarketAction : SmartphoneAction {
     override val displayName: Text get() = Text.translatable("cobblemarket.entry.pokemon")
 
     override fun onClick() {
+        CobbleMarketClient.playEntrySound()
         MinecraftClient.getInstance().setScreen(MarketEntryScreen())
     }
 }
