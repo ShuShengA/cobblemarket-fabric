@@ -188,5 +188,12 @@ object CobbleMarketClient : ClientModInitializer {
                 }
             }
         }
+
+        // 集成 cobblemon_smartphone：注册"市场"App 按钮（仅在安装了该模组时）
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("cobblemon_smartphone")) {
+            com.nbp.cobblemon_smartphone.api.SmartphoneActionRegistry.register(
+                com.shusheng.cobblemarket.compat.OpenMarketAction
+            )
+        }
     }
 }
