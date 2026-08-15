@@ -3,15 +3,11 @@
 	"id": "cobblemarket",
 	"version": "${version}",
 	"name": "CobbleMarket",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "A player-to-player trading market for Cobblemon: buy and sell Pokémon and items, with configurable listing fees, per-player bans, transaction history, expired listing returns, and optional CobbleDollars currency support.",
 	"authors": [
-		"Me!"
+		"Shu_ShengA"
 	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/cobblemarket/icon.png",
 	"environment": "*",
 	"entrypoints": {

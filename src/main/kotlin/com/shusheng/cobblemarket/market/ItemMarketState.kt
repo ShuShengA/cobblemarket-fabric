@@ -141,6 +141,8 @@ class ItemMarketState private constructor() : PersistentState() {
                 if (rebuilt.isEmpty) {
                     returned++
                     changed = true
+                    // 物品已全部归还，挂单生命周期终结，立即删除避免存档膨胀
+                    listings.remove(listing.id)
                     try {
                         com.shusheng.cobblemarket.event.TransactionHistory.get(player.server).addRecord(
                             com.shusheng.cobblemarket.event.TransactionRecord(
@@ -267,6 +269,17 @@ class ItemMarketState private constructor() : PersistentState() {
                         } catch (e: Exception) {
                             CobbleMarket.LOGGER.warn("Skipping corrupted item return entry '{}': {}", key, e.message)
                         }
+                    }
+                    // 迁移清理：终态且未被任何待领取列表引用的挂单是历史遗留孤儿数据，
+                    // 继续保留只会让存档无限膨胀，读取时直接丢弃
+                    val referenced = pendingReturns.values.flatten().map { it.id }.toSet()
+                    val orphans = listings.keys.filter { id ->
+                        val l = listings[id]!!
+                        !l.isActive() && id !in referenced
+                    }
+                    orphans.forEach { listings.remove(it) }
+                    if (orphans.isNotEmpty()) {
+                        CobbleMarket.LOGGER.info("Cleaned up {} orphan item listings from old save data", orphans.size)
                     }
                 }
             },

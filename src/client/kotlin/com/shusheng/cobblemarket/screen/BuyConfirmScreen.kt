@@ -31,9 +31,10 @@ class BuyConfirmScreen(private val entry: ListingEntry) : Screen(Text.translatab
         if (id != null) {
             val species = PokemonSpecies.getByIdentifier(id)
             if (species != null) {
-                displayName = species.translatedName.string
-                val aspects = mutableSetOf<String>()
-                if (entry.shiny) aspects.add("shiny")
+                displayName = com.shusheng.cobblemarket.util.SpeciesText.displayName(species)
+                // 用挂单真实 aspects（含性别形态），否则雌性爱管侍会渲染成默认雄性模型
+                val aspects = entry.aspects.toMutableSet()
+                if (entry.shiny && "shiny" !in aspects) aspects.add("shiny")
                 renderable = RenderablePokemon(species, aspects, ItemStack.EMPTY)
             }
         }
@@ -86,50 +87,11 @@ class BuyConfirmScreen(private val entry: ListingEntry) : Screen(Text.translatab
             matrices.pop()
         }
 
-        val lineH = 11
-        var infoY = iconY + iconSize + 8
+        val infoY = iconY + iconSize + 8
 
-        // Pokemon name
+        // 完整信息行（与市场列表悬停 tooltip 结构一致）：名字☆Lv / 类型 / 性格特性 / 携带物 / IV / 卖家 / 价格
         val name = (if (displayName.isNotEmpty()) displayName else entry.species) + (if (entry.shiny) " ☆" else "")
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.literal(name).formatted(Formatting.WHITE), centerX, infoY, 0xFFFFFF)
-        infoY += lineH
-
-        // Level
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.buy_confirm.level", entry.level), centerX, infoY, 0xAAAAAA)
-        infoY += lineH
-
-        // Nature + Ability
-        val nature = Text.translatable("cobblemarket.gui.tooltip_nature").string + Text.translatable(entry.nature).string
-        val ability = Text.translatable("cobblemarket.gui.tooltip_ability").string + Text.translatable(entry.ability).string
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.literal("$nature  $ability"), centerX, infoY, 0xAAAAAA)
-        infoY += lineH
-
-        // IVs
-        val hp = Text.translatable("cobblemon.stat.hp.name").string
-        val atk = Text.translatable("cobblemon.stat.attack.name").string
-        val def = Text.translatable("cobblemon.stat.defence.name").string
-        val spa = Text.translatable("cobblemon.stat.special_attack.name").string
-        val spd = Text.translatable("cobblemon.stat.special_defence.name").string
-        val spe = Text.translatable("cobblemon.stat.speed.name").string
-        listOf(
-            "$hp: ${entry.ivsHp}" to 0x66FF66,
-            "$atk: ${entry.ivsAtk}" to 0xFF6666,
-            "$spa: ${entry.ivsSpAtk}" to 0x6699FF,
-            "$def: ${entry.ivsDef}" to 0xFFCC66,
-            "$spd: ${entry.ivsSpDef}" to 0x66FF99,
-            "$spe: ${entry.ivsSpd}" to 0xFF99FF
-        ).forEach { (line, color) ->
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal(line), centerX, infoY, color)
-            infoY += lineH
-        }
-
-        // Price
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.buy_confirm.price", com.shusheng.cobblemarket.client.formatPrice(entry.price), entry.currencyName),
-            centerX, infoY, 0x55FFFF)
+        EntryBadgeRenderer.drawInfoLines(context, entry, name, centerX, infoY)
     }
 
     override fun shouldPause() = false

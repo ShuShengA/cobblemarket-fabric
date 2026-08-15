@@ -26,6 +26,7 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
 
     private val panelWidth = 296
     private val rowHeight = 24
+    private val MAX_FORM_LIST_ROWS = 8
 
     private var entries = listOf<PokemonBlacklistEntry>()
     private var searchField: TextFieldWidget? = null
@@ -43,6 +44,19 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
     private var previewRenderable: RenderablePokemon? = null
     private val previewState = FloatingState()
     private val removeButtons = mutableListOf<NineSliceButton>()
+
+    // 添加对话框的形态选择：全部形态 + 物种的各个 form；aspects 为空 = 封禁所有形态。
+    // 形态按钮点击展开列表（每行一个选项，可滚动），点选后收起。
+    private data class FormOption(val label: String, val aspects: Set<String>)
+    private var previewSpecies: Species? = null
+    private var formOptions = listOf<FormOption>()
+    private var formIndex = 0
+    private var formButton: NineSliceButton? = null
+    private var formListOpen = false
+    private var formListScroll = 0
+    private val formOptionButtons = mutableListOf<NineSliceButton>()
+    private var addConfirmButton: NineSliceButton? = null
+    private var addCancelButton: NineSliceButton? = null
 
     private data class IconData(val displayName: String, val renderable: RenderablePokemon, val state: FloatingState)
     private val iconData = mutableMapOf<Int, IconData>()
@@ -99,23 +113,30 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
         addField?.setChangedListener { updatePreview(it) }
         addDrawableChild(addField)
 
-        ivHpField = createIvField(centerX - 75, dialogY + 64, "HP")
-        ivAtkField = createIvField(centerX - 23, dialogY + 64, "ATK")
-        ivDefField = createIvField(centerX + 29, dialogY + 64, "DEF")
-        ivSpAtkField = createIvField(centerX - 75, dialogY + 86, "SPA")
-        ivSpDefField = createIvField(centerX - 23, dialogY + 86, "SPD")
-        ivSpdField = createIvField(centerX + 29, dialogY + 86, "SPE")
+        // 形态选择按钮：只有解析出多形态物种时显示，点击展开/收起形态列表
+        formButton = NineSliceButton(centerX - 80, dialogY + 48, 140, 14, Text.literal(""), { toggleFormList() })
+        formButton?.visible = false
+        addDrawableChild(formButton)
 
-        addDrawableChild(NineSliceButton(
-            centerX - 85, dialogY + 114, 80, 20,
+        ivHpField = createIvField(centerX - 75, dialogY + 76, "HP")
+        ivAtkField = createIvField(centerX - 23, dialogY + 76, "ATK")
+        ivDefField = createIvField(centerX + 29, dialogY + 76, "DEF")
+        ivSpAtkField = createIvField(centerX - 75, dialogY + 98, "SPA")
+        ivSpDefField = createIvField(centerX - 23, dialogY + 98, "SPD")
+        ivSpdField = createIvField(centerX + 29, dialogY + 98, "SPE")
+
+        addConfirmButton = NineSliceButton(
+            centerX - 85, dialogY + 126, 80, 20,
             Text.translatable("cobblemarket.blacklist.add"),
             { confirmAdd() }
-        ))
-        addDrawableChild(NineSliceButton(
-            centerX + 5, dialogY + 114, 80, 20,
+        )
+        addDrawableChild(addConfirmButton)
+        addCancelButton = NineSliceButton(
+            centerX + 5, dialogY + 126, 80, 20,
             Text.translatable("cobblemarket.buy_confirm.cancel"),
             { closeAddDialog() }
-        ))
+        )
+        addDrawableChild(addCancelButton)
     }
 
     private fun createIvField(x: Int, y: Int, placeholder: String): TextFieldWidget {
@@ -139,9 +160,11 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
             Text.translatable("cobblemarket.blacklist.add_title").formatted(Formatting.GOLD),
             centerX, dialogY + 14, 0xFFFFFF)
 
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.blacklist.iv_hint"),
-            centerX, dialogY + 50, 0xAAAAAA)
+        if (!formListOpen) {
+            context.drawCenteredTextWithShadow(textRenderer,
+                Text.translatable("cobblemarket.blacklist.iv_hint"),
+                centerX, dialogY + 64, 0xAAAAAA)
+        }
 
         // 精灵预览槽位
         val slotSize = 28
@@ -179,14 +202,18 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
 
     private fun confirmAdd() {
         val input = addField?.text?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        // 优先发送客户端本地解析出的物种 ID（中文输入在客户端解析）；
+        // 服务端只有英文环境，发原文会导致中文名解析失败被静默丢弃
+        val speciesInput = previewSpecies?.resourceIdentifier?.toString() ?: input
         ClientPlayNetworking.send(AddPokemonBlacklistPayload(
-            speciesId = input,
+            speciesId = speciesInput,
             ivHp = parseIv(ivHpField?.text),
             ivAtk = parseIv(ivAtkField?.text),
             ivDef = parseIv(ivDefField?.text),
             ivSpAtk = parseIv(ivSpAtkField?.text),
             ivSpDef = parseIv(ivSpDefField?.text),
-            ivSpd = parseIv(ivSpdField?.text)
+            ivSpd = parseIv(ivSpdField?.text),
+            aspects = formOptions.getOrNull(formIndex)?.aspects?.toList() ?: emptyList()
         ))
         closeAddDialog()
     }
@@ -199,8 +226,16 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
 
     private fun updatePreview(text: String) {
         previewRenderable = null
+        previewSpecies = null
+        formOptions = listOf()
+        formIndex = 0
+        formListOpen = false
+        rebuildFormList()
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty()) {
+            formButton?.visible = false
+            return
+        }
         val species = if (trimmed.contains(":")) {
             Identifier.tryParse(trimmed)?.let { PokemonSpecies.getByIdentifier(it) }
         } else {
@@ -208,7 +243,97 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
             byName ?: resolveByChineseName(trimmed)
         }
         if (species != null) {
+            previewSpecies = species
+            // 形态选项语义（与服务端匹配）：
+            //   ["*"] = 全部形态（显式全封）
+            //   []    = 默认形态（标准形态无 aspect 声明且物种有 forms 时提供）
+            //   [x..] = 各 form 的 aspects
+            val seen = mutableSetOf<Set<String>>(setOf(PokemonBlacklistEntry.ALL_FORMS))
+            val opts = mutableListOf(FormOption(Text.translatable("cobblemarket.blacklist.form_all").string, setOf(PokemonBlacklistEntry.ALL_FORMS)))
+            val standardAspects = species.standardForm.aspects.toSet()
+            if (standardAspects.isNotEmpty()) {
+                // 标准形态自带 aspect（爱管侍雄性 = ["male"]）：作为独立选项
+                seen.add(standardAspects)
+                opts.add(FormOption(formLabel(standardAspects), standardAspects))
+            } else if (species.forms.isNotEmpty()) {
+                // 标准形态无 aspect（四季鹿春季）：提供"默认形态"选项（aspects 空集）
+                seen.add(emptySet())
+                opts.add(FormOption(Text.translatable("cobblemarket.blacklist.form_default").string, emptySet()))
+            }
+            species.forms.forEach { f ->
+                val a = f.aspects.toSet()
+                if (seen.add(a)) opts.add(FormOption(formLabel(a), a))
+            }
+            formOptions = opts
+            formIndex = 0
             previewRenderable = RenderablePokemon(species, mutableSetOf(), ItemStack.EMPTY)
+            formButton?.visible = formOptions.size > 1
+            formButton?.setMessage(formButtonText())
+        } else {
+            formButton?.visible = false
+        }
+    }
+
+    // aspect 显示名：走本模组翻译表，未收录的 aspect 显示原文
+    private fun aspectLabel(aspect: String): String {
+        val t = Text.translatable("cobblemarket.aspect.$aspect")
+        return if (t.string == "cobblemarket.aspect.$aspect") aspect else t.string
+    }
+
+    private fun formLabel(aspects: Set<String>): String = when {
+        PokemonBlacklistEntry.ALL_FORMS in aspects -> Text.translatable("cobblemarket.blacklist.form_all").string
+        aspects.isEmpty() -> Text.translatable("cobblemarket.blacklist.form_default").string
+        else -> aspects.joinToString("/") { aspectLabel(it) }
+    }
+
+    private fun formButtonText() = Text.literal(
+        com.shusheng.cobblemarket.util.TextUtil.truncateString(
+            "${Text.translatable("cobblemarket.blacklist.form").string}: ${formOptions.getOrNull(formIndex)?.label ?: ""}",
+            132
+        )
+    )
+
+    private fun toggleFormList() {
+        formListOpen = !formListOpen
+        formListScroll = formListScroll.coerceIn(0, maxOf(0, formOptions.size - MAX_FORM_LIST_ROWS))
+        rebuildFormList()
+    }
+
+    private fun selectForm(idx: Int) {
+        formIndex = idx
+        formListOpen = false
+        rebuildFormList()
+        formButton?.setMessage(formButtonText())
+        // 预览随所选形态切换：["*"]/[] 渲染标准形态模型，具体 aspects 传入
+        val aspects = formOptions[formIndex].aspects
+            .filter { it != PokemonBlacklistEntry.ALL_FORMS }.toMutableSet()
+        previewRenderable = previewSpecies?.let { RenderablePokemon(it, aspects, ItemStack.EMPTY) }
+    }
+
+    // 展开的形态列表：每行一个选项，最多 8 行可见，超出滚动。
+    // 展开时隐藏被列表覆盖的控件（IV 输入框 + 确认/取消按钮）——它们先于形态选项添加，
+    // MC 点击遍历按添加顺序，不隐藏的话点击会被它们拦截，形态选项永远点不到。
+    private fun rebuildFormList() {
+        formOptionButtons.forEach { remove(it) }
+        formOptionButtons.clear()
+        val ivFields = listOf(ivHpField, ivAtkField, ivDefField, ivSpAtkField, ivSpDefField, ivSpdField)
+        ivFields.forEach { it?.visible = !formListOpen }
+        addConfirmButton?.visible = !formListOpen
+        addCancelButton?.visible = !formListOpen
+        if (!formListOpen) return
+        val centerX = width / 2
+        val dialogY = height / 2 - 90
+        formOptions.drop(formListScroll).take(MAX_FORM_LIST_ROWS).forEachIndexed { i, opt ->
+            val idx = formListScroll + i
+            // 数据包自创的超长 aspect 名截断，防止溢出按钮
+            val label = com.shusheng.cobblemarket.util.TextUtil.truncateString(opt.label, 124)
+            val btn = NineSliceButton(
+                centerX - 80, dialogY + 62 + i * 14, 140, 14,
+                Text.literal(if (idx == formIndex) "● $label" else label),
+                { selectForm(idx) }
+            )
+            formOptionButtons.add(btn)
+            addDrawableChild(btn)
         }
     }
 
@@ -223,6 +348,13 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
     private fun closeAddDialog() {
         addField = null
         previewRenderable = null
+        previewSpecies = null
+        formOptions = listOf()
+        formIndex = 0
+        formButton = null
+        formListOpen = false
+        formListScroll = 0
+        formOptionButtons.clear()
         ivHpField = null
         ivAtkField = null
         ivDefField = null
@@ -245,7 +377,8 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
         entries.forEachIndexed { index, entry ->
             val id = Identifier.tryParse(entry.speciesId) ?: return@forEachIndexed
             val species = PokemonSpecies.getByIdentifier(id) ?: return@forEachIndexed
-            iconData[index] = IconData(species.translatedName.string, RenderablePokemon(species, mutableSetOf(), ItemStack.EMPTY), FloatingState())
+            // 条目带形态时按形态渲染（雌性爱管侍显示雌性模型），空 aspects = 标准形态
+            iconData[index] = IconData(com.shusheng.cobblemarket.util.SpeciesText.displayName(species), RenderablePokemon(species, entry.aspects.toMutableSet(), ItemStack.EMPTY), FloatingState())
         }
     }
 
@@ -301,15 +434,17 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
 
     private fun entryDisplay(entry: PokemonBlacklistEntry): String {
         val species = Identifier.tryParse(entry.speciesId)?.let { PokemonSpecies.getByIdentifier(it) }
-        val name = species?.translatedName?.string ?: entry.speciesId
-        val ivParts = mutableListOf<String>()
-        if (entry.ivHp >= 0) ivParts.add("HP${entry.ivHp}")
-        if (entry.ivAtk >= 0) ivParts.add("${Text.translatable("cobblemon.stat.attack.name").string}${entry.ivAtk}")
-        if (entry.ivDef >= 0) ivParts.add("${Text.translatable("cobblemon.stat.defence.name").string}${entry.ivDef}")
-        if (entry.ivSpAtk >= 0) ivParts.add("${Text.translatable("cobblemon.stat.special_attack.name").string}${entry.ivSpAtk}")
-        if (entry.ivSpDef >= 0) ivParts.add("${Text.translatable("cobblemon.stat.special_defence.name").string}${entry.ivSpDef}")
-        if (entry.ivSpd >= 0) ivParts.add("${Text.translatable("cobblemon.stat.speed.name").string}${entry.ivSpd}")
-        return if (ivParts.isEmpty()) name else "$name（${ivParts.joinToString(" ")}）"
+        val name = species?.let { com.shusheng.cobblemarket.util.SpeciesText.displayName(it) } ?: entry.speciesId
+        val parts = mutableListOf<String>()
+        // 形态标签：全部形态/默认形态/具体 aspect，始终显示
+        parts.add(formLabel(entry.aspects.toSet()))
+        if (entry.ivHp >= 0) parts.add("HP${entry.ivHp}")
+        if (entry.ivAtk >= 0) parts.add("${Text.translatable("cobblemon.stat.attack.name").string}${entry.ivAtk}")
+        if (entry.ivDef >= 0) parts.add("${Text.translatable("cobblemon.stat.defence.name").string}${entry.ivDef}")
+        if (entry.ivSpAtk >= 0) parts.add("${Text.translatable("cobblemon.stat.special_attack.name").string}${entry.ivSpAtk}")
+        if (entry.ivSpDef >= 0) parts.add("${Text.translatable("cobblemon.stat.special_defence.name").string}${entry.ivSpDef}")
+        if (entry.ivSpd >= 0) parts.add("${Text.translatable("cobblemon.stat.speed.name").string}${entry.ivSpd}")
+        return if (parts.isEmpty()) name else "$name（${parts.joinToString(" ")}）"
     }
 
     override fun renderBackground(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
@@ -406,8 +541,9 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
 
     private fun renderTooltip(context: DrawContext, entry: PokemonBlacklistEntry, mouseX: Int, mouseY: Int) {
         val species = Identifier.tryParse(entry.speciesId)?.let { PokemonSpecies.getByIdentifier(it) }
-        val name = species?.translatedName?.string ?: entry.speciesId
+        val name = species?.let { com.shusheng.cobblemarket.util.SpeciesText.displayName(it) } ?: entry.speciesId
         val lines = mutableListOf(name)
+        lines.add(formLabel(entry.aspects.toSet()))
         if (entry.ivHp >= 0) lines.add("${Text.translatable("cobblemon.stat.hp.name").string}: ${entry.ivHp}")
         if (entry.ivAtk >= 0) lines.add("${Text.translatable("cobblemon.stat.attack.name").string}: ${entry.ivAtk}")
         if (entry.ivDef >= 0) lines.add("${Text.translatable("cobblemon.stat.defence.name").string}: ${entry.ivDef}")
@@ -442,6 +578,13 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
+        // 形态列表展开且超过可见行数时，滚轮滚动形态列表
+        if (formListOpen && formOptions.size > MAX_FORM_LIST_ROWS) {
+            formListScroll = (formListScroll - verticalAmount.toInt())
+                .coerceIn(0, formOptions.size - MAX_FORM_LIST_ROWS)
+            rebuildFormList()
+            return true
+        }
         scrollOffset = (scrollOffset - verticalAmount.toInt()).coerceIn(0, maxOf(0, filteredEntries().size - getMaxVisibleRows()))
         rebuildRemoveButtons()
         return true
@@ -480,6 +623,7 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
         val spa = ivSpAtkField?.text ?: ""
         val spd = ivSpDefField?.text ?: ""
         val spe = ivSpdField?.text ?: ""
+        val savedFormIndex = formIndex
         super.resize(client, width, height)
         if (wasOpen) {
             addField = null
@@ -491,6 +635,17 @@ class PokemonBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blackli
             ivSpAtkField?.text = spa
             ivSpDefField?.text = spd
             ivSpdField?.text = spe
+            // 文本恢复已触发 updatePreview 重建形态选项，这里恢复索引与预览；形态列表保持收起
+            formListOpen = false
+            rebuildFormList()
+            if (formOptions.size > 1) {
+                formIndex = savedFormIndex.coerceIn(0, formOptions.size - 1)
+                formButton?.visible = true
+                formButton?.setMessage(formButtonText())
+                val aspects = formOptions[formIndex].aspects
+                    .filter { it != PokemonBlacklistEntry.ALL_FORMS }.toMutableSet()
+                previewRenderable = previewSpecies?.let { RenderablePokemon(it, aspects, ItemStack.EMPTY) }
+            }
         }
     }
 

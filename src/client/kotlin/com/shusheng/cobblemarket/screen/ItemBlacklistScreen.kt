@@ -31,6 +31,17 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
     private var addButton: NineSliceButton? = null
     private val removeButtons = mutableListOf<NineSliceButton>()
 
+    // 添加对话框的匹配物品选择：输入后列出全部匹配物品（如"钻石"→钻石/钻石剑/钻石原矿…），点选确认
+    private var matchedItems = listOf<String>()
+    private var selectedItemIndex = -1
+    private var itemListOpen = false
+    private var itemListScroll = 0
+    private val itemOptionButtons = mutableListOf<NineSliceButton>()
+    private var itemSelectButton: NineSliceButton? = null
+    private var addConfirmButton: NineSliceButton? = null
+    private var addCancelButton: NineSliceButton? = null
+    private val MAX_ITEM_LIST_ROWS = 8
+
     private fun getListStartY() = 64
     private fun getMaxVisibleRows() = maxOf(0, (height - getListStartY() - 48) / rowHeight)
 
@@ -82,16 +93,23 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
         addField?.setChangedListener { updatePreview(it) }
         addDrawableChild(addField)
 
-        addDrawableChild(NineSliceButton(
+        // 物品选择按钮：点击展开匹配列表，点选具体物品
+        itemSelectButton = NineSliceButton(centerX - 80, dialogY + 48, 140, 14, Text.literal(""), { toggleItemList() })
+        itemSelectButton?.visible = false
+        addDrawableChild(itemSelectButton)
+
+        addConfirmButton = NineSliceButton(
             centerX - 85, dialogY + 72, 80, 20,
             Text.translatable("cobblemarket.blacklist.add"),
             { confirmAdd() }
-        ))
-        addDrawableChild(NineSliceButton(
+        )
+        addDrawableChild(addConfirmButton)
+        addCancelButton = NineSliceButton(
             centerX + 5, dialogY + 72, 80, 20,
             Text.translatable("cobblemarket.buy_confirm.cancel"),
             { closeAddDialog() }
-        ))
+        )
+        addDrawableChild(addCancelButton)
     }
 
     private fun renderAddDialogBackground(context: DrawContext) {
@@ -118,36 +136,116 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
         }
     }
 
-    private fun updatePreview(text: String) {
-        previewItemId = resolvePreviewItemId(text)
+    // 收集全部匹配物品（优先级：ID 路径精确 > 翻译名精确 > 翻译名包含），保持注册表顺序稳定
+    private fun resolveMatchingItems(input: String): List<String> {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        if (trimmed.contains(":")) return listOf(trimmed)
+        val lower = trimmed.lowercase().replace(" ", "_")
+        val result = LinkedHashSet<String>()
+        Registries.ITEM.forEach { item ->
+            val id = Registries.ITEM.getId(item)
+            if (id.path == lower) result.add(id.toString())
+        }
+        Registries.ITEM.forEach { item ->
+            val id = Registries.ITEM.getId(item)
+            if (item.name.string == trimmed) result.add(id.toString())
+        }
+        Registries.ITEM.forEach { item ->
+            val id = Registries.ITEM.getId(item)
+            if (item.name.string.contains(trimmed)) result.add(id.toString())
+        }
+        return result.toList()
     }
 
-    private fun resolvePreviewItemId(input: String): String? {
-        val trimmed = input.trim()
-        if (trimmed.isEmpty()) return null
-        if (trimmed.contains(":")) return trimmed
-        val lower = trimmed.lowercase().replace(" ", "_")
-        Registries.ITEM.forEach { item ->
-            val id = Registries.ITEM.getId(item)
-            if (id.path == lower) return id.toString()
+    private fun updatePreview(text: String) {
+        matchedItems = resolveMatchingItems(text)
+        // 唯一匹配自动选中；多匹配等待用户点选
+        selectedItemIndex = if (matchedItems.size == 1) 0 else -1
+        itemListOpen = false
+        itemListScroll = 0
+        rebuildItemList()
+        updateItemSelectButton()
+        previewItemId = matchedItems.getOrNull(selectedItemIndex) ?: matchedItems.firstOrNull()
+    }
+
+    private fun itemDisplay(itemId: String): String {
+        val id = Identifier.tryParse(itemId) ?: return itemId
+        val item = Registries.ITEM.get(id)
+        val name = item.name.string
+        // 无翻译的物品（第三方模组缺 lang）会显示翻译 key 原文（超长难读），fallback 到资源路径
+        return if (name == item.translationKey) id.path else name
+    }
+
+    private fun updateItemSelectButton() {
+        itemSelectButton?.visible = matchedItems.isNotEmpty()
+        val label = matchedItems.getOrNull(selectedItemIndex)?.let { itemDisplay(it) }
+            ?: if (matchedItems.size > 1)
+                Text.translatable("cobblemarket.blacklist.item_matches", matchedItems.size).string
+            else ""
+        itemSelectButton?.setMessage(Text.literal(
+            com.shusheng.cobblemarket.util.TextUtil.truncateString(
+                "${Text.translatable("cobblemarket.blacklist.item_label").string}: $label",
+                132
+            )
+        ))
+    }
+
+    private fun toggleItemList() {
+        itemListOpen = !itemListOpen
+        itemListScroll = itemListScroll.coerceIn(0, maxOf(0, matchedItems.size - MAX_ITEM_LIST_ROWS))
+        rebuildItemList()
+    }
+
+    private fun selectItem(idx: Int) {
+        selectedItemIndex = idx
+        itemListOpen = false
+        rebuildItemList()
+        updateItemSelectButton()
+        previewItemId = matchedItems.getOrNull(idx)
+    }
+
+    // 展开的匹配列表：与精灵黑名单形态列表同模式，展开时隐藏被覆盖的确认/取消按钮
+    private fun rebuildItemList() {
+        itemOptionButtons.forEach { remove(it) }
+        itemOptionButtons.clear()
+        addConfirmButton?.visible = !itemListOpen
+        addCancelButton?.visible = !itemListOpen
+        if (!itemListOpen) return
+        val centerX = width / 2
+        val dialogY = height / 2 - 55
+        matchedItems.drop(itemListScroll).take(MAX_ITEM_LIST_ROWS).forEachIndexed { i, itemId ->
+            val idx = itemListScroll + i
+            val label = com.shusheng.cobblemarket.util.TextUtil.truncateString(itemDisplay(itemId), 124)
+            val btn = NineSliceButton(
+                centerX - 80, dialogY + 62 + i * 14, 140, 14,
+                Text.literal(if (idx == selectedItemIndex) "● $label" else label),
+                { selectItem(idx) }
+            )
+            itemOptionButtons.add(btn)
+            addDrawableChild(btn)
         }
-        Registries.ITEM.forEach { item ->
-            val id = Registries.ITEM.getId(item)
-            val name = item.name.string
-            if (name == trimmed || name.contains(trimmed)) return id.toString()
-        }
-        return null
     }
 
     private fun confirmAdd() {
         val input = addField?.text?.trim()?.takeIf { it.isNotEmpty() } ?: return
-        ClientPlayNetworking.send(AddItemBlacklistPayload(input))
+        // 优先发送用户点选的物品 ID；未点选时回退到自动解析（唯一匹配/原文）
+        val selected = matchedItems.getOrNull(selectedItemIndex)
+        ClientPlayNetworking.send(AddItemBlacklistPayload(selected ?: resolveMatchingItems(input).firstOrNull() ?: input))
         closeAddDialog()
     }
 
     private fun closeAddDialog() {
         addField = null
         previewItemId = null
+        matchedItems = listOf()
+        selectedItemIndex = -1
+        itemListOpen = false
+        itemListScroll = 0
+        itemOptionButtons.clear()
+        itemSelectButton = null
+        addConfirmButton = null
+        addCancelButton = null
         clearChildren()
         init()
     }
@@ -185,7 +283,9 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
     }
 
     private fun entryDisplay(itemId: String): String {
-        return Identifier.tryParse(itemId)?.let { Registries.ITEM.get(it).name.string } ?: itemId
+        val name = itemDisplay(itemId)
+        // 主列表条目区宽约 210px，超长名截断防止与删除按钮重叠
+        return com.shusheng.cobblemarket.util.TextUtil.truncateString(name, 210)
     }
 
     override fun renderBackground(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
@@ -304,6 +404,13 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
+        // 匹配列表展开且超过可见行数时，滚轮滚动匹配列表
+        if (itemListOpen && matchedItems.size > MAX_ITEM_LIST_ROWS) {
+            itemListScroll = (itemListScroll - verticalAmount.toInt())
+                .coerceIn(0, matchedItems.size - MAX_ITEM_LIST_ROWS)
+            rebuildItemList()
+            return true
+        }
         scrollOffset = (scrollOffset - verticalAmount.toInt()).coerceIn(0, maxOf(0, filteredEntries().size - getMaxVisibleRows()))
         rebuildRemoveButtons()
         return true
@@ -327,11 +434,18 @@ class ItemBlacklistScreen : Screen(Text.translatable("cobblemarket.op.blacklist_
     override fun resize(client: MinecraftClient, width: Int, height: Int) {
         val wasOpen = addField != null
         val name = addField?.text ?: ""
+        val savedSelectedItemIndex = selectedItemIndex
         super.resize(client, width, height)
         if (wasOpen) {
             addField = null
             openAddDialog()
             addField?.text = name
+            // 文本恢复已触发 updatePreview 重建匹配列表，这里恢复选中项与预览
+            if (savedSelectedItemIndex in matchedItems.indices) {
+                selectedItemIndex = savedSelectedItemIndex
+                updateItemSelectButton()
+                previewItemId = matchedItems.getOrNull(selectedItemIndex)
+            }
         }
     }
 

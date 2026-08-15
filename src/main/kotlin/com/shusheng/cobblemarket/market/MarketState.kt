@@ -160,6 +160,8 @@ class MarketState private constructor() : PersistentState() {
             }
             if (success) {
                 returned++
+                // 精灵已归还玩家，挂单生命周期终结，立即删除避免存档膨胀
+                listings.remove(listing.id)
                 try {
                     com.shusheng.cobblemarket.event.MarketEvents.RETURN.trigger(com.shusheng.cobblemarket.event.ReturnEvent(player.uuid, listing))
                 } catch (e: Exception) {
@@ -264,6 +266,17 @@ class MarketState private constructor() : PersistentState() {
                         } catch (e: Exception) {
                             CobbleMarket.LOGGER.warn("Skipping corrupted pending return entry '{}': {}", key, e.message)
                         }
+                    }
+                    // 迁移清理：终态且未被任何待领取列表引用的挂单是历史遗留孤儿数据，
+                    // 继续保留只会让存档无限膨胀，读取时直接丢弃
+                    val referenced = pendingReturns.values.flatten().map { it.id }.toSet()
+                    val orphans = listings.keys.filter { id ->
+                        val l = listings[id]!!
+                        !l.isActive() && id !in referenced
+                    }
+                    orphans.forEach { listings.remove(it) }
+                    if (orphans.isNotEmpty()) {
+                        CobbleMarket.LOGGER.info("Cleaned up {} orphan pokemon listings from old save data", orphans.size)
                     }
                 }
             },

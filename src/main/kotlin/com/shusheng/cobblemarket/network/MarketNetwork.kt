@@ -47,7 +47,8 @@ data class ListingEntry(
     val ball: String,
     val ballItem: String,
     val heldItemId: String,
-    val currencyName: String
+    val currencyName: String,
+    val aspects: List<String> // 精灵形态（性别/地区等），客户端渲染 3D 图标用
 ) {
     fun write(buf: PacketByteBuf) {
         buf.writeUuid(id)
@@ -69,6 +70,7 @@ data class ListingEntry(
         buf.writeString(ballItem)
         buf.writeString(heldItemId)
         buf.writeString(currencyName)
+        buf.writeVarInt(aspects.size); aspects.forEach { buf.writeString(it) }
     }
 
     companion object {
@@ -91,7 +93,8 @@ data class ListingEntry(
             ball = buf.readString(),
             ballItem = buf.readString(),
             heldItemId = buf.readString(),
-            currencyName = buf.readString()
+            currencyName = buf.readString(),
+            aspects = (0 until buf.readVarInt()).map { buf.readString() }
         )
     }
 }
@@ -324,7 +327,8 @@ data class PokemonPreview(
     val secondaryType: String,
     val source: String, // "party" or "pc"
     val slot: Int,
-    val heldItemId: String
+    val heldItemId: String,
+    val aspects: List<String> // 精灵形态（shiny/性别/地区形态等），客户端渲染 3D 图标用
 ) {
     fun write(buf: PacketByteBuf) {
         buf.writeUuid(uuid); buf.writeString(species); buf.writeString(speciesId); buf.writeString(speciesName)
@@ -334,6 +338,7 @@ data class PokemonPreview(
         buf.writeInt(ivsSpAtk); buf.writeInt(ivsSpDef); buf.writeInt(ivsSpd)
         buf.writeString(ball); buf.writeString(primaryType); buf.writeString(secondaryType)
         buf.writeString(source); buf.writeInt(slot); buf.writeString(heldItemId)
+        buf.writeVarInt(aspects.size); aspects.forEach { buf.writeString(it) }
     }
 
     companion object {
@@ -343,35 +348,52 @@ data class PokemonPreview(
             buf.readString(), buf.readString(),
             buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(),
             buf.readString(), buf.readString(), buf.readString(),
-            buf.readString(), buf.readInt(), buf.readString()
+            buf.readString(), buf.readInt(), buf.readString(),
+            (0 until buf.readVarInt()).map { buf.readString() }
         )
     }
 }
 
 // ── C2S: Request my Pokémon list ──
 
-class RequestMyPokemonPayload : CustomPayload {
+class RequestMyPokemonPayload(val page: Int, val requestId: Int) : CustomPayload {
     override fun getId() = ID
 
     companion object {
         val ID = CustomPayload.Id<RequestMyPokemonPayload>(CobbleMarket.id("request_my_pokemon"))
         val CODEC: PacketCodec<PacketByteBuf, RequestMyPokemonPayload> = PacketCodec.of(
-            { _, b -> b.writeInt(0) },
-            { b -> b.readInt(); RequestMyPokemonPayload() }
+            { p, b -> b.writeInt(p.page); b.writeInt(p.requestId) },
+            { b -> RequestMyPokemonPayload(b.readInt(), b.readInt()) }
         )
     }
 }
 
 // ── S2C: My Pokémon list response ──
 
-data class MyPokemonListPayload(val pokemon: List<PokemonPreview>) : CustomPayload {
+data class MyPokemonListPayload(
+    val pokemon: List<PokemonPreview>,
+    val page: Int,
+    val requestId: Int,
+    val hasMore: Boolean
+) : CustomPayload {
     override fun getId() = ID
 
     companion object {
         val ID = CustomPayload.Id<MyPokemonListPayload>(CobbleMarket.id("my_pokemon_list"))
         val CODEC: PacketCodec<PacketByteBuf, MyPokemonListPayload> = PacketCodec.of(
-            { p, b -> b.writeVarInt(p.pokemon.size); p.pokemon.forEach { it.write(b) } },
-            { b -> MyPokemonListPayload((0 until b.readVarInt()).map { PokemonPreview.read(b) }) }
+            { p, b ->
+                b.writeInt(p.page); b.writeInt(p.requestId); b.writeBoolean(p.hasMore)
+                b.writeVarInt(p.pokemon.size); p.pokemon.forEach { it.write(b) }
+            },
+            { b ->
+                val page = b.readInt()
+                val requestId = b.readInt()
+                val hasMore = b.readBoolean()
+                MyPokemonListPayload(
+                    (0 until b.readVarInt()).map { PokemonPreview.read(b) },
+                    page, requestId, hasMore
+                )
+            }
         )
     }
 }
@@ -702,6 +724,20 @@ private fun parseSortMode(name: String): com.shusheng.cobblemarket.market.SortMo
     com.shusheng.cobblemarket.market.SortMode.entries.firstOrNull { it.name == name }
         ?: com.shusheng.cobblemarket.market.SortMode.PRICE_ASC
 
+// 退还物品到背包：insertStack 会扣减传入栈的 count（放入部分），
+// 未完全放入的剩余部分掉落到地面（拾取延迟 0），确保玩家不损失物品
+private fun giveBackItem(stack: ItemStack, player: ServerPlayerEntity) {
+    if (stack.isEmpty) return
+    player.inventory.insertStack(stack)
+    if (!stack.isEmpty) {
+        val entity = player.dropItem(stack, false)
+        entity?.setPickupDelay(0)
+    }
+    player.inventory.markDirty()
+}
+
+// 预检：insertStack（PlayerInventory）只往 main 放（getEmptySlot 只遍历 main），
+// 预检同样只数 main，与实际插入行为一致，不会误拒合法交易
 internal fun canFitInInventory(player: ServerPlayerEntity, stack: ItemStack): Boolean {
     var remaining = stack.count
     val main = player.inventory.main
@@ -754,7 +790,9 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(RequestMarketPayload.ID) { payload, context ->
             val player = context.player()
-            if (!RequestThrottle.allow(player.uuid, "request_market", RequestThrottle.READ_INTERVAL_MS)) return@registerGlobalReceiver
+            // 250ms：与客户端搜索防抖（250ms）配合——防抖保证正常操作下两次请求间隔
+            // 至少 250ms，最终态请求不会被节流误丢；仍拦得住恶意高频全量搜索
+            if (!RequestThrottle.allow(player.uuid, "request_market", 250L)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val state = MarketState.get(server)
@@ -765,7 +803,7 @@ object MarketNetwork {
                     species = payload.speciesFilter.ifBlank { null },
                     shiny = if (payload.shinyOnly) true else null,
                     minLevel = if (payload.minLevel > 0) payload.minLevel else null,
-                    maxLevel = if (payload.maxLevel < 100) payload.maxLevel else null,
+                    maxLevel = if (payload.maxLevel >= 0) payload.maxLevel else null,
                     sortBy = sortMode,
                     gender = payload.genderFilter.ifBlank { null },
                     typeFilter = payload.typeFilter.ifBlank { null },
@@ -811,7 +849,8 @@ object MarketNetwork {
                             ball = detail["ball"] ?: "?",
                             ballItem = detail["ballItem"] ?: "cobblemon:poke_ball",
                             heldItemId = detail["heldItemId"] ?: "",
-                            currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
+                            currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName(),
+                            aspects = parseAspects(detail)
                         )
                     }
                 }
@@ -947,6 +986,9 @@ object MarketNetwork {
 
                 val seller = server.playerManager.getPlayer(listing.sellerUuid)
                 seller?.sendMessage(Text.translatable("cobblemarket.network.sold", listing.speciesText()), false)
+
+                // 精灵已进买家队伍，挂单生命周期终结，立即删除避免存档膨胀
+                state.removeListing(listing.id)
             }
         }
 
@@ -1007,6 +1049,9 @@ object MarketNetwork {
                     player,
                     MarketResultPayload(true, Text.translatable("cobblemarket.cmd.cancelled", listing.speciesText()))
                 )
+
+                // 精灵已回卖家队伍，挂单生命周期终结，立即删除避免存档膨胀
+                state.removeListing(listing.id)
             }
         }
 
@@ -1066,7 +1111,8 @@ object MarketNetwork {
                             ball = detail["ball"] ?: "?",
                             ballItem = detail["ballItem"] ?: "cobblemon:poke_ball",
                             heldItemId = detail["heldItemId"] ?: "",
-                            currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName()
+                            currencyName = com.shusheng.cobblemarket.config.CurrencyHandler.getName(),
+                            aspects = parseAspects(detail)
                         )
                     }
                 }
@@ -1195,37 +1241,51 @@ object MarketNetwork {
             }
         }
 
-        ServerPlayNetworking.registerGlobalReceiver(RequestMyPokemonPayload.ID) { _, context ->
+        ServerPlayNetworking.registerGlobalReceiver(RequestMyPokemonPayload.ID) { payload, context ->
             val player = context.player()
-            if (!RequestThrottle.allow(player.uuid, "request_my_pokemon", RequestThrottle.READ_INTERVAL_MS)) return@registerGlobalReceiver
+            // page 超出合理范围直接丢弃，防 page * pageSize 溢出
+            if (payload.page !in 0..10000) return@registerGlobalReceiver
+            // page 0 是开关界面的入口，保留节流防刷；分页请求由响应驱动（拿到响应才会发下一个），
+            // 天然有节奏且只读无副作用，不节流——本地服务器往返 <1ms，500ms 冷却会把整条链全部拒掉。
+            if (payload.page == 0 && !RequestThrottle.allow(player.uuid, "request_my_pokemon", RequestThrottle.READ_INTERVAL_MS)) {
+                return@registerGlobalReceiver
+            }
             val server = player.server
             server.execute {
+                val pageSize = 100
                 val previews = mutableListOf<PokemonPreview>()
-                val party = Cobblemon.storage.getParty(player)
-                for (i in 0..5) {
-                    try {
-                        val p = party.get(PartyPosition(i)) ?: continue
-                        previews.add(toPreview(p, "party", i))
-                    } catch (_: Exception) {
+                if (payload.page == 0) {
+                    // 队伍精灵固定显示在列表顶部，只随第一页发送
+                    val party = Cobblemon.storage.getParty(player)
+                    for (i in 0..5) {
+                        try {
+                            val p = party.get(PartyPosition(i)) ?: continue
+                            previews.add(toPreview(p, "party", i))
+                        } catch (_: Exception) {
+                        }
                     }
                 }
+                var hasMore = false
                 try {
                     val pc = Cobblemon.storage.getPC(player)
-                    // PC is iterable; limit to first 30 to avoid huge packets
-                    val world = player.serverWorld
-                    var count = 0
+                    // PC 按全局偏移分页切片：坏精灵计入偏移但不占名额，保证翻页切片不漂移
+                    var idx = 0
+                    var sent = 0
+                    val skip = payload.page * pageSize
                     val iter = pc.iterator()
-                    while (iter.hasNext() && count < 30) {
+                    while (iter.hasNext()) {
+                        val p = iter.next()
+                        if (idx++ < skip) continue
+                        if (sent >= pageSize) { hasMore = true; break }
                         try {
-                            val p = iter.next()
-                            previews.add(toPreview(p, "pc", count))
-                            count++
+                            previews.add(toPreview(p, "pc", idx - 1))
+                            sent++
                         } catch (_: Exception) {
                         }
                     }
                 } catch (_: Exception) {
                 }
-                ServerPlayNetworking.send(player, MyPokemonListPayload(previews))
+                ServerPlayNetworking.send(player, MyPokemonListPayload(previews, payload.page, payload.requestId, hasMore))
             }
         }
 
@@ -1284,9 +1344,9 @@ object MarketNetwork {
                     return@execute
                 }
 
-                // 黑名单检查
+                // 黑名单检查（物种 + IV + 形态：["*"]=全形态，[]=默认形态，非空=子集匹配）
                 if (com.shusheng.cobblemarket.market.PokemonBlacklistState.get(server)
-                        .isBlacklisted(pokemon.species.resourceIdentifier.toString(), pokemon.ivs)
+                        .isBlacklisted(pokemon)
                 ) {
                     ServerPlayNetworking.send(
                         player,
@@ -1517,22 +1577,10 @@ object MarketNetwork {
                     return@execute
                 }
 
-                // 副作用阶段：扣手续费 → 扣物品（已无可能失败的操作）
-                // 手续费（基于总价）
-                val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.itemListingFeePercent
-                val totalPrice = payload.price.toLong() * payload.count
-                val fee = if (feePercent > 0) Math.ceil(totalPrice * feePercent / 100.0).toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
-                if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
-                    ServerPlayNetworking.send(
-                        player, MarketResultPayload(
-                            false,
-                            Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName())
-                        )
-                    )
-                    return@execute
-                }
-
-                // 扣物品（不信任客户端 NBT，以服务端重建物品为准）
+                // 副作用阶段：先扣物品、再扣手续费。
+                // 顺序不能反过来：货币物品 == 上架物品时（默认钻石货币 + 上架钻石），
+                // 先扣手续费会从 main 的同一栈扣掉一部分，导致物品扣除不足额；
+                // 若不校验剩余量，挂单仍按 count 全额入库 = 凭空虚增货物（经济漏洞）。
                 var remaining = payload.count
                 for (i in 0 until main.size) {
                     val stack = main[i]
@@ -1543,7 +1591,31 @@ object MarketNetwork {
                         if (remaining <= 0) break
                     }
                 }
+                if (remaining > 0) {
+                    // 防御性校验：available 检查已保证足额，正常不可达；异常时退还已扣部分，绝不虚增挂单
+                    giveBackItem(targetStack.copyWithCount(payload.count - remaining), player)
+                    ServerPlayNetworking.send(
+                        player,
+                        MarketResultPayload(false, Text.translatable("cobblemarket.network.listing_failed"))
+                    )
+                    return@execute
+                }
                 player.inventory.markDirty()
+
+                // 手续费（基于总价）；失败时退还已扣物品并中止
+                val feePercent = com.shusheng.cobblemarket.config.CobbleMarketConfig.itemListingFeePercent
+                val totalPrice = payload.price.toLong() * payload.count
+                val fee = if (feePercent > 0) Math.ceil(totalPrice * feePercent / 100.0).toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 0
+                if (fee > 0 && !CurrencyHandler.remove(player, fee)) {
+                    giveBackItem(targetStack.copyWithCount(payload.count), player)
+                    ServerPlayNetworking.send(
+                        player, MarketResultPayload(
+                            false,
+                            Text.translatable("cobblemarket.cmd.need_fee", fee, CurrencyHandler.getName())
+                        )
+                    )
+                    return@execute
+                }
 
                 // 手动同步背包，确保客户端先收到背包更新、再收到上架结果
                 player.currentScreenHandler.sendContentUpdates()
@@ -1777,8 +1849,11 @@ object MarketNetwork {
                 listing.count -= count
                 if (listing.count <= 0) {
                     listing.status = ListingStatus.SOLD
+                    // 库存清空且货物已全部交付买家，挂单生命周期终结，立即删除避免存档膨胀
+                    state.removeListing(listing.id)
+                } else {
+                    state.markModified()
                 }
-                state.markModified()
 
                 com.shusheng.cobblemarket.event.TransactionHistory.get(server).addRecord(
                     com.shusheng.cobblemarket.event.TransactionRecord(
@@ -1907,6 +1982,9 @@ object MarketNetwork {
                     player,
                     MarketResultPayload(true, Text.translatable("cobblemarket.item.cancelled"))
                 )
+
+                // 物品已回卖家背包，挂单生命周期终结，立即删除避免存档膨胀
+                state.removeListing(listing.id)
             }
         }
 
@@ -1951,7 +2029,8 @@ object MarketNetwork {
                 val isAdmin = player.hasPermissionLevel(2)
                 val records =
                     if (payload.all && isAdmin) history.getRecords() else history.getRecordsByPlayer(player.uuid)
-                val entries = records.take(50).map { r ->
+                // 界面内最多展示 500 条（滚动浏览），完整记录见 config/cobblemarket/history/ CSV 日志
+                val entries = records.take(500).map { r ->
                     val t =
                         if (r.type == com.shusheng.cobblemarket.event.TransactionType.PURCHASE && r.buyerUuid == player.uuid) "BUY" else r.type.name
                     HistoryEntry(t, r.category.name, r.species, r.price, r.buyerName, r.sellerName, r.timestamp)
@@ -2051,6 +2130,16 @@ object MarketNetwork {
     }
 
     /** 构建挂单展示数据；调用方负责 try-catch（上架路径要求零副作用后才扣费/移除）。 */
+    // 旧挂单（aspects 功能上线前上架的）没有 aspects 数据，按性别兜底：
+    // 性别差异物种的形态 aspect 恰好名为 male/female
+    private fun parseAspects(detail: Map<String, String>): List<String> =
+        detail["aspects"]?.takeIf { it.isNotBlank() }?.split(",")
+            ?: when (detail["gender"]) {
+                "MALE" -> listOf("male")
+                "FEMALE" -> listOf("female")
+                else -> emptyList()
+            }
+
     private fun buildListingExtra(
         pokemon: com.cobblemon.mod.common.pokemon.Pokemon,
         heldItemStack: ItemStack
@@ -2071,7 +2160,9 @@ object MarketNetwork {
             "gender" to pokemon.gender.name,
             "ball" to "item.cobblemon.${pokemon.caughtBall.name.path}",
             "ballItem" to "cobblemon:${pokemon.caughtBall.name.path}",
-            "heldItemId" to (if (heldItemStack.isEmpty) "" else Registries.ITEM.getId(heldItemStack.item).toString())
+            "heldItemId" to (if (heldItemStack.isEmpty) "" else Registries.ITEM.getId(heldItemStack.item).toString()),
+            // 精灵形态（性别/地区等），客户端渲染 3D 图标用；逗号分隔，aspect 名不含逗号
+            "aspects" to pokemon.aspects.joinToString(",")
         )
         pokemon.secondaryType?.let { extra["secondaryType"] = "cobblemon.type.${it.name.lowercase()}" }
         return extra
@@ -2080,7 +2171,11 @@ object MarketNetwork {
     private fun toPreview(pokemon: com.cobblemon.mod.common.pokemon.Pokemon, source: String, slot: Int) =
         PokemonPreview(
             uuid = pokemon.uuid,
-            species = pokemon.species.translatedName.string,
+            // 只发翻译 key，客户端本地翻译——服务端无玩家语言上下文，translatedName 永远是默认语言。
+            // 必须走 SpeciesText.translationKey（直接取 Cobblemon 生成的翻译 key）：
+            // 手拼 key 容易踩 species.name（显示名，如 "Indeedee" 大写）与资源路径的差异，key 拼错
+            // 客户端只能显示 key 原文，且中文搜索跟着失效。
+            species = com.shusheng.cobblemarket.util.SpeciesText.translationKey(pokemon.species),
             speciesId = pokemon.species.resourceIdentifier.toString(),
             speciesName = pokemon.species.name,
             level = pokemon.level,
@@ -2099,7 +2194,8 @@ object MarketNetwork {
             secondaryType = pokemon.secondaryType?.let { "cobblemon.type.${it.name.lowercase()}" } ?: "",
             source = source,
             slot = slot,
-            heldItemId = if (pokemon.heldItem().isEmpty) "" else Registries.ITEM.getId(pokemon.heldItem().item).toString()
+            heldItemId = if (pokemon.heldItem().isEmpty) "" else Registries.ITEM.getId(pokemon.heldItem().item).toString(),
+            aspects = pokemon.aspects.toList()
         )
 
     fun openScreen(player: ServerPlayerEntity) {

@@ -70,8 +70,9 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         listings.forEachIndexed { index, entry ->
             val id = Identifier.tryParse(entry.speciesId) ?: return@forEachIndexed
             val species = PokemonSpecies.getByIdentifier(id) ?: return@forEachIndexed
-            val aspects = mutableSetOf<String>()
-            if (entry.shiny) aspects.add("shiny")
+            // 用挂单真实 aspects（性别形态/地区形态等），与其他界面一致
+            val aspects = entry.aspects.toMutableSet()
+            if (entry.shiny && "shiny" !in aspects) aspects.add("shiny")
             iconData[index] = IconData(species.translatedName.string, RenderablePokemon(species, aspects, ItemStack.EMPTY), FloatingState())
         }
     }
@@ -314,8 +315,9 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         if (id != null) {
             val species = PokemonSpecies.getByIdentifier(id)
             if (species != null) {
-                val aspects = mutableSetOf<String>()
-                if (e.shiny) aspects.add("shiny")
+                // 用挂单真实 aspects（性别形态/地区形态等），与其他界面一致
+                val aspects = e.aspects.toMutableSet()
+                if (e.shiny && "shiny" !in aspects) aspects.add("shiny")
                 confirmRenderable = RenderablePokemon(species, aspects, ItemStack.EMPTY)
                 confirmDisplayName = species.translatedName.string
             }
@@ -437,12 +439,67 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
 
             renderPokemonIcon(context, origIndex, leftX + 2, y + 2, iconSize)
 
+            // 球种（名称左侧）+ 物种名 + 性别图标 + 携带物 + 头像 + 等级 + 价格——与精灵市场界面布局一致
+            val ballId = Identifier.tryParse(entry.ballItem)
+            if (ballId != null) {
+                val ballItem = Registries.ITEM.get(ballId)
+                com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                    itemStack = ItemStack(ballItem),
+                    x = leftX + 26.0,
+                    y = y + 6.0,
+                    scale = 0.6,
+                    matrixStack = context.matrices
+                )
+            }
+
             val shinyMark = if (entry.shiny) " ☆" else ""
             val displayName = iconData[origIndex]?.displayName ?: entry.species
-            context.drawText(textRenderer, "$displayName$shinyMark", leftX + 28, y + 7, typeColor(entry.primaryType), false)
+            val speciesText = "$displayName$shinyMark"
+            context.drawText(textRenderer, speciesText, leftX + 40, y + 7, typeColor(entry.primaryType), false)
 
-            context.drawText(textRenderer, Text.translatable("cobblemarket.gui.lv").string + entry.level, leftX + 135, y + 7, 0xAAAAAA, false)
-            context.drawTextWithShadow(textRenderer, "${entry.price} ◆", leftX + 185, y + 7, 0x55FFFF)
+            var iconOffset = 0
+            if (entry.gender == "MALE" || entry.gender == "FEMALE") {
+                val genderIcon = if (entry.gender == "MALE")
+                    Identifier.of("cobblemon", "textures/gui/pc/gender_icon_male.png")
+                else
+                    Identifier.of("cobblemon", "textures/gui/pc/gender_icon_female.png")
+                val genderX = leftX + 40 + textRenderer.getWidth(speciesText) + 2
+                com.cobblemon.mod.common.api.gui.blitk(
+                    matrixStack = context.matrices,
+                    texture = genderIcon,
+                    x = genderX,
+                    y = y + 7,
+                    width = 6,
+                    height = 8
+                )
+                iconOffset = 8
+            }
+
+            if (entry.heldItemId.isNotEmpty()) {
+                Identifier.tryParse(entry.heldItemId)?.let { heldId ->
+                    val heldItem = Registries.ITEM.get(heldId)
+                    if (heldItem != Registries.ITEM.get(Identifier.of("minecraft", "air"))) {
+                        com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                            itemStack = ItemStack(heldItem),
+                            x = leftX + 40 + textRenderer.getWidth(speciesText) + 2 + iconOffset + 0.0,
+                            y = y + 6.0,
+                            scale = 0.6,
+                            matrixStack = context.matrices
+                        )
+                        iconOffset += 12
+                    }
+                }
+            }
+
+            drawSellerAvatar(context, entry.sellerUuid, entry.sellerName, leftX + 115, y + 4, 16)
+
+            val levelText = Text.translatable("cobblemarket.gui.lv").string + entry.level
+            context.drawText(textRenderer, levelText, leftX + 135, y + 7, 0xAAAAAA, false)
+
+            // 价格右对齐到取消按钮左缘
+            val priceText = "${com.shusheng.cobblemarket.client.formatPrice(entry.price)} ◆"
+            val btnLeft = leftX + panelWidth - 42
+            context.drawTextWithShadow(textRenderer, priceText, btnLeft - textRenderer.getWidth(priceText) - 4, y + 7, 0x55FFFF)
         }
 
         if (confirmEntry == null && hoveredRow in displayList.indices) {
@@ -455,6 +512,22 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         if (confirmEntry != null) {
             renderConfirmDialog(context, mouseX, mouseY)
         }
+    }
+
+    private val defaultSkinTexture = Identifier.of("minecraft", "textures/entity/player/wide/steve.png")
+
+    private fun getSellerSkin(uuid: java.util.UUID, name: String): Identifier {
+        client?.networkHandler?.getPlayerListEntry(uuid)?.skinTextures?.texture()?.let { return it }
+        return client?.skinProvider?.getSkinTextures(com.mojang.authlib.GameProfile(uuid, name))?.texture() ?: defaultSkinTexture
+    }
+
+    private fun drawSellerAvatar(context: DrawContext, uuid: java.util.UUID, name: String, x: Int, y: Int, size: Int) {
+        val texture = getSellerSkin(uuid, name)
+        context.matrices.push()
+        context.matrices.translate(x.toDouble(), y.toDouble(), 0.0)
+        context.matrices.scale(size / 8f, size / 8f, 1f)
+        context.drawTexture(texture, 0, 0, 8f, 8f, 8, 8, 64, 64)
+        context.matrices.pop()
     }
 
     private fun renderPokemonIcon(context: DrawContext, index: Int, x: Int, y: Int, size: Int) {
@@ -489,23 +562,34 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
 
         val w = 0xFFFFFF
         val ivColors = intArrayOf(0x66FF66, 0xFF6666, 0xFFCC66, 0x6699FF, 0x66FF99, 0xFF99FF)
-        val lines = listOf(
-            "${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}${if (entry.secondaryType.isNotEmpty()) " + ${Text.translatable(entry.secondaryType).string}" else ""}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w,
-            "  $hp:${entry.ivsHp}" to ivColors[0],
-            "  $atk:${entry.ivsAtk}" to ivColors[1],
-            "  $def:${entry.ivsDef}" to ivColors[2],
-            "  $spa:${entry.ivsSpAtk}" to ivColors[3],
-            "  $spd:${entry.ivsSpDef}" to ivColors[4],
-            "  $spe:${entry.ivsSpd}" to ivColors[5],
-            "${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w,
-            "${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w
-        )
+
+        val hasHeldItem = entry.heldItemId.isNotEmpty() &&
+            Identifier.tryParse(entry.heldItemId)?.let { Registries.ITEM.get(it) != Registries.ITEM.get(Identifier.of("minecraft", "air")) } == true
+
+        val lines = mutableListOf<Pair<String, Int>>()
+        lines.add("${iconData[listings.indexOf(entry)]?.displayName ?: entry.species}${if (entry.shiny) " ☆" else ""}  ${Text.translatable("cobblemarket.gui.lv").string}${entry.level}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_type").string}${Text.translatable(entry.primaryType).string}${if (entry.secondaryType.isNotEmpty()) " + ${Text.translatable(entry.secondaryType).string}" else ""}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(entry.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(entry.ability).string}" to w)
+        var heldItemLine = -1
+        if (hasHeldItem) {
+            heldItemLine = lines.size
+            lines.add(Text.translatable("cobblemarket.gui.tooltip_held").string to w)
+        }
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_ivs").string}" to w)
+        lines.add("  $hp:${entry.ivsHp}" to ivColors[0])
+        lines.add("  $atk:${entry.ivsAtk}" to ivColors[1])
+        lines.add("  $def:${entry.ivsDef}" to ivColors[2])
+        lines.add("  $spa:${entry.ivsSpAtk}" to ivColors[3])
+        lines.add("  $spd:${entry.ivsSpDef}" to ivColors[4])
+        lines.add("  $spe:${entry.ivsSpd}" to ivColors[5])
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).string} ${entry.sellerName}" to w)
+        lines.add("${Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).string} ${entry.price} ${entry.currencyName}" to w)
 
         var maxWidth = 0
         lines.forEach { maxWidth = maxOf(maxWidth, textRenderer.getWidth(it.first)) }
+        if (heldItemLine >= 0) {
+            maxWidth = maxOf(maxWidth, textRenderer.getWidth(lines[heldItemLine].first) + 14)
+        }
 
         val padding = 4
         val tx = minOf(mouseX + 12, width - maxWidth - 12)
@@ -517,7 +601,20 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         context.matrices.translate(0.0, 0.0, 400.0)
         drawNineSlice(context, ROW_BACKGROUND_TEXTURE, tx - padding, ty - padding, maxWidth + 2 * padding, lines.size * 10 + 2 * padding, 1, ROW_BACKGROUND_TEX_H)
         lines.forEachIndexed { i, (line, color) ->
-            context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+            if (i == heldItemLine) {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+                Identifier.tryParse(entry.heldItemId)?.let { heldId ->
+                    com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                        itemStack = ItemStack(Registries.ITEM.get(heldId)),
+                        x = tx + textRenderer.getWidth(line) + 2.0,
+                        y = ty + i * 10 + 0.0,
+                        scale = 0.6,
+                        matrixStack = context.matrices
+                    )
+                }
+            } else {
+                context.drawTextWithShadow(textRenderer, line, tx, ty + i * 10, color)
+            }
         }
         context.matrices.pop()
     }
@@ -526,7 +623,7 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
         val entry = confirmEntry ?: return
         val centerX = width / 2
         val dialogW = 220
-        val dialogH = 150
+        val dialogH = 240
         val dialogX = centerX - dialogW / 2
         val dialogY = height / 2 - dialogH / 2
 
@@ -565,18 +662,14 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
             im.pop()
         }
 
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.literal(confirmDisplayName + (if (entry.shiny) " ☆" else "")),
-            centerX, dialogY + 60, 0xFFFFFF)
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).append(" ").append(entry.sellerName),
-            centerX, dialogY + 74, 0xFFFFFF)
-        context.drawCenteredTextWithShadow(textRenderer,
-            Text.translatable("cobblemarket.gui.tooltip_price").formatted(Formatting.GRAY).append(" ").append("${entry.price} ${entry.currencyName}"),
-            centerX, dialogY + 88, 0xFFFFFF)
+        // 完整信息行（与市场列表悬停 tooltip 结构一致）：名字☆Lv / 类型 / 性格特性 / 携带物 / IV / 卖家 / 价格
+        EntryBadgeRenderer.drawInfoLines(
+            context, entry, confirmDisplayName + (if (entry.shiny) " ☆" else ""),
+            centerX, dialogY + 60
+        )
 
         // 确认 / 取消按钮
-        val btnY = dialogY + 104
+        val btnY = dialogY + dialogH - 28
         val btnW = 80
         val confirmHover = mouseX in (centerX - btnW - 4)..(centerX - 4) && mouseY in btnY..(btnY + 20)
         val cancelHover = mouseX in (centerX + 4)..(centerX + 4 + btnW) && mouseY in btnY..(btnY + 20)
@@ -589,9 +682,9 @@ class AdminPokemonScreen : Screen(Text.translatable("cobblemarket.op.pokemon")) 
 
     private fun handleConfirmDialogClick(mx: Int, my: Int) {
         val centerX = width / 2
-        val dialogH = 150
+        val dialogH = 240
         val dialogY = height / 2 - dialogH / 2
-        val btnY = dialogY + 104
+        val btnY = dialogY + dialogH - 28
         val btnW = 80
         if (my in btnY..(btnY + 20)) {
             if (mx in (centerX - btnW - 4)..(centerX - 4)) {

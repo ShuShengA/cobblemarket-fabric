@@ -84,7 +84,14 @@ object ItemBlacklistNetwork {
             if (!player.hasPermissionLevel(2)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
-                val itemId = resolveItemId(payload.itemName) ?: return@execute
+                val itemId = resolveItemId(payload.itemName)
+                if (itemId == null) {
+                    // 解析失败明确反馈，不再静默丢弃
+                    player.sendMessage(
+                        net.minecraft.text.Text.translatable("cobblemarket.blacklist.item_not_found")
+                            .formatted(net.minecraft.util.Formatting.RED), false)
+                    return@execute
+                }
                 ItemBlacklistState.get(server).add(itemId)
                 val entries = ItemBlacklistState.get(server).getAll()
                 ServerPlayNetworking.send(player, ItemBlacklistDataPayload(entries))
@@ -112,10 +119,16 @@ object ItemBlacklistNetwork {
             val id = Registries.ITEM.getId(item)
             if (id.path == lower) return id.toString()
         }
+        // 翻译名精确匹配优先于模糊匹配：注册表里方块先于物品，
+        // 若混在一起 contains 匹配，搜"Diamond"会先命中"Diamond Ore"
+        Registries.ITEM.forEach { item ->
+            val id = Registries.ITEM.getId(item)
+            if (item.name.string == trimmed) return id.toString()
+        }
         Registries.ITEM.forEach { item ->
             val id = Registries.ITEM.getId(item)
             val name = item.name.string
-            if (name == trimmed || name.contains(trimmed)) return id.toString()
+            if (name.contains(trimmed)) return id.toString()
         }
         return null
     }

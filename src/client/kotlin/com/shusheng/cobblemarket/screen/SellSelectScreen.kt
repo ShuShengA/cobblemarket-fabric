@@ -25,6 +25,11 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
     private var priceField: TextFieldWidget? = null
     private var searchField: TextFieldWidget? = null
     private var loaded = false
+    // 分页拉取状态：loadedAll 为 true 表示服务端已返回全部 PC 精灵
+    private var loadedAll = false
+    private var closed = false
+    // 防串扰：秒关再开界面时，旧界面的迟到响应会被 requestId 比对丢弃
+    private val requestId = nextRequestId++
     private val rowHeight = 24
     private var scrollOffset = 0
     private var shinyOnly = false
@@ -38,13 +43,27 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
     private data class IconData(val renderable: RenderablePokemon, val state: FloatingState)
     private val iconData = mutableMapOf<Int, IconData>()
 
-    private fun buildIconCache() {
-        iconData.clear()
-        pokemonList.forEachIndexed { i, p ->
-            val id = Identifier.tryParse(p.speciesId) ?: return@forEachIndexed
-            val species = PokemonSpecies.getByIdentifier(id) ?: return@forEachIndexed
-            val aspects = mutableSetOf<String>()
-            if (p.shiny) aspects.add("shiny")
+    // 物种显示名缓存：species 字段是翻译 key，客户端本地翻译（随客户端语言），搜索与渲染共用。
+    // 翻译缺失（数据包物种未配语言文件）时返回 key 原文，fallback 到资源名；缓存随界面实例销毁，
+    // 语言切换重开界面即重建。
+    private val speciesNameCache = mutableMapOf<String, String>()
+    private fun speciesDisplay(p: PokemonPreview): String =
+        speciesNameCache.getOrPut(p.species) {
+            val t = Text.translatable(p.species).string
+            if (t == p.species) p.speciesName else t
+        }
+
+    // startIdx > 0 时只构建新增条目的图标，避免分页追加时全量重建
+    private fun buildIconCache(startIdx: Int = 0) {
+        if (startIdx == 0) iconData.clear()
+        for (i in startIdx until pokemonList.size) {
+            val p = pokemonList[i]
+            val id = Identifier.tryParse(p.speciesId) ?: continue
+            val species = PokemonSpecies.getByIdentifier(id) ?: continue
+            // 用精灵真实 aspects（性别形态/地区形态等），不再只加 shiny——
+            // 否则雌性爱管侍这类性别差异物种会渲染成默认雄性模型
+            val aspects = p.aspects.toMutableSet()
+            if (p.shiny && "shiny" !in aspects) aspects.add("shiny")
             iconData[i] = IconData(RenderablePokemon(species, aspects, ItemStack.EMPTY), FloatingState())
         }
     }
@@ -95,12 +114,17 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
         addDrawableChild(NineSliceButton(lx + 244, btnY, 48, 20, Text.translatable("cobblemarket.sell.back"), { client?.setScreen(MarketScreen()) }))
 
         if (!loaded) {
-            ClientPlayNetworking.send(RequestMyPokemonPayload())
+            ClientPlayNetworking.send(RequestMyPokemonPayload(0, requestId))
             loaded = true
         }
     }
 
     private fun rebuild() { clearChildren(); init() }
+
+    override fun close() {
+        closed = true
+        super.close()
+    }
 
     private val allTypes = listOf("" to "") + listOf("normal","fire","water","electric","grass","ice","fighting","poison","ground","flying",
         "psychic","bug","rock","ghost","dragon","dark","steel","fairy").map { it to "cobblemon.type.$it" }
@@ -114,7 +138,7 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
         syncIvFields()
         return pokemonList.filter { p ->
             val q = searchField?.text?.trim()?.takeIf { it.isNotEmpty() }
-            (q == null || p.species.contains(q, ignoreCase = true) || p.speciesName.contains(q, ignoreCase = true)) &&
+            (q == null || speciesDisplay(p).contains(q, ignoreCase = true) || p.speciesName.contains(q, ignoreCase = true)) &&
             (!shinyOnly || p.shiny) &&
             (typeFilter.isEmpty() || p.primaryType == typeFilter || p.secondaryType == typeFilter) &&
             (minIvs[0] < 0 || p.ivsHp == minIvs[0]) && (minIvs[1] < 0 || p.ivsAtk == minIvs[1]) &&
@@ -135,9 +159,23 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
     }
 
     fun onPokemonList(payload: MyPokemonListPayload) {
-        pokemonList = payload.pokemon
-        selectedIndex = -1
-        buildIconCache()
+        if (closed || payload.requestId != requestId) return
+        if (payload.page == 0) {
+            pokemonList = payload.pokemon
+            selectedIndex = -1
+            buildIconCache()
+        } else {
+            // 追加后续页：图标只增量构建。客户端串行请求，服务端按序处理，不会乱序。
+            val startIdx = pokemonList.size
+            pokemonList = pokemonList + payload.pokemon
+            buildIconCache(startIdx)
+        }
+        if (payload.hasMore) {
+            // 响应驱动串行拉取，直到服务端说没有更多页
+            ClientPlayNetworking.send(RequestMyPokemonPayload(payload.page + 1, requestId))
+        } else {
+            loadedAll = true
+        }
     }
 
     private fun sellSelected() {
@@ -231,14 +269,26 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
             var sx = lx + 28
             context.drawText(textRenderer, src, sx, y + 7, srcColor, false)
             sx += textRenderer.getWidth(src) + 4
-            val speciesName = "${e.species}$sm"
+
+            // Ball icon（球种统一在精灵名称左侧）
+            if (e.ball.isNotEmpty()) {
+                val ballId = Identifier.tryParse(e.ball.removePrefix("item.").replaceFirst(".", ":"))
+                if (ballId != null) {
+                    val bi = Registries.ITEM.get(ballId)
+                    com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
+                        itemStack = ItemStack(bi), x = sx.toDouble(), y = y + 6.0, scale = 0.6, matrixStack = context.matrices)
+                }
+                sx += 12
+            }
+
+            val speciesName = "${speciesDisplay(e)}$sm"
             context.drawText(textRenderer, speciesName, sx, y + 7, tc, false)
             sx += textRenderer.getWidth(speciesName) + 2
 
             // Gender icon（紧跟名字）
             if (e.gender == "MALE" || e.gender == "FEMALE") {
                 val gi = Identifier.of("cobblemon", if (e.gender == "MALE") "textures/gui/pc/gender_icon_male.png" else "textures/gui/pc/gender_icon_female.png")
-                com.cobblemon.mod.common.api.gui.blitk(matrixStack = context.matrices, texture = gi, x = sx, y = y + 5, width = 6, height = 8)
+                com.cobblemon.mod.common.api.gui.blitk(matrixStack = context.matrices, texture = gi, x = sx, y = y + 7, width = 6, height = 8)
                 sx += 8
             }
 
@@ -248,19 +298,9 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
                     val heldItem = Registries.ITEM.get(heldId)
                     if (heldItem != Registries.ITEM.get(Identifier.of("minecraft", "air"))) {
                         com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
-                            itemStack = ItemStack(heldItem), x = sx.toDouble(), y = y + 4.0, scale = 0.6, matrixStack = context.matrices)
+                            itemStack = ItemStack(heldItem), x = sx.toDouble(), y = y + 6.0, scale = 0.6, matrixStack = context.matrices)
                         sx += 12
                     }
-                }
-            }
-
-            // Ball icon（紧跟携带物）
-            if (e.ball.isNotEmpty()) {
-                val ballId = Identifier.tryParse(e.ball.removePrefix("item.").replaceFirst(".", ":"))
-                if (ballId != null) {
-                    val bi = Registries.ITEM.get(ballId)
-                    com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
-                        itemStack = ItemStack(bi), x = sx.toDouble(), y = y + 4.0, scale = 0.6, matrixStack = context.matrices)
                 }
             }
 
@@ -274,13 +314,16 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
         }
 
         // Footer
-        if (filtered.isEmpty() && loaded) {
+        if (filtered.isEmpty() && loaded && loadedAll) {
+            // 只有全部分页拉完才能断言"没有"，否则匹配项可能还在未加载的页里
             context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.sell.no_pokemon").formatted(Formatting.GRAY), width / 2, startY + 50, 0xFFFFFF)
         }
         if (!loaded) {
             context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.sell.loading").formatted(Formatting.GRAY), width / 2, startY + 50, 0xFFFFFF)
         }
-        if (filtered.size > maxVisible) {
+        if (loaded && !loadedAll) {
+            context.drawCenteredTextWithShadow(textRenderer, Text.translatable("cobblemarket.sell.loading_more", pokemonList.size).formatted(Formatting.GRAY), width / 2, height - 49, 0x888888)
+        } else if (filtered.size > maxVisible) {
             context.drawCenteredTextWithShadow(textRenderer, "${scrollOffset + 1}-${minOf(scrollOffset + maxVisible, filtered.size)} / ${filtered.size}", width / 2, height - 49, 0x888888)
         }
     }
@@ -322,7 +365,7 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
             Identifier.tryParse(p.heldItemId)?.let { Registries.ITEM.get(it) != Registries.ITEM.get(Identifier.of("minecraft", "air")) } == true
 
         val lines = mutableListOf<Pair<String, Int>>()
-        lines.add("${p.species}${if (p.shiny) " ☆" else ""}  Lv.${p.level}" to 0xFFFFFF)
+        lines.add("${speciesDisplay(p)}${if (p.shiny) " ☆" else ""}  Lv.${p.level}" to 0xFFFFFF)
         lines.add("${Text.translatable("cobblemarket.gui.tooltip_type").string}$typeText" to 0xFFFFFF)
         lines.add("${Text.translatable("cobblemarket.gui.tooltip_nature").string}${Text.translatable(p.nature).string}  ${Text.translatable("cobblemarket.gui.tooltip_ability").string}${Text.translatable(p.ability).string}" to 0xFFFFFF)
         var heldItemLine = -1
@@ -353,7 +396,7 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
                     com.cobblemon.mod.common.client.render.renderScaledGuiItemIcon(
                         itemStack = ItemStack(Registries.ITEM.get(heldId)),
                         x = tx + textRenderer.getWidth(line) + 2.0,
-                        y = ty + i * 10 - 2.0,
+                        y = ty + i * 10 + 0.0,
                         scale = 0.6,
                         matrixStack = context.matrices
                     )
@@ -408,11 +451,19 @@ class SellSelectScreen : Screen(Text.translatable("cobblemarket.sell.title")) {
             client?.player?.sendMessage(payload.message.copy().formatted(Formatting.GREEN), false)
             priceField?.text = ""
             selectedIndex = -1
-            ClientPlayNetworking.send(RequestMyPokemonPayload())
+            // 上架成功后从第一页重新拉取全量列表
+            pokemonList = listOf()
+            iconData.clear()
+            loadedAll = false
+            ClientPlayNetworking.send(RequestMyPokemonPayload(0, requestId))
         } else {
             client?.player?.sendMessage(payload.message.copy().formatted(Formatting.RED), false)
         }
     }
 
     override fun shouldPause() = false
+
+    companion object {
+        private var nextRequestId = 0
+    }
 }

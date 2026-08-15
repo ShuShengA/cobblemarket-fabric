@@ -339,7 +339,8 @@ class AdminItemScreen : Screen(Text.translatable("cobblemarket.op.item")) {
             val countText = "×${entry.count}"
             context.drawText(textRenderer, countText, x + slotSize - 2 - textRenderer.getWidth(countText), y + 2, 0xFFFFFF, false)
 
-            val priceText = "${entry.price}"
+            // 价格过长时用缩写（与物品市场界面一致），完整价格见 tooltip
+            val priceText = com.shusheng.cobblemarket.client.formatPriceShort(entry.price)
             context.drawText(textRenderer, priceText, x + 3, y + slotSize - 10, 0x55FFFF, false)
         }
 
@@ -361,7 +362,7 @@ class AdminItemScreen : Screen(Text.translatable("cobblemarket.op.item")) {
             lines.add(Text.literal(entry.itemId))
         }
         lines.add(Text.translatable("cobblemarket.gui.tooltip_seller").formatted(Formatting.GRAY).append(" ").append(entry.sellerName))
-        lines.add(Text.translatable("cobblemarket.item.tooltip_price").formatted(Formatting.GRAY).append(" ").append("${entry.price} ${entry.currencyName}"))
+        lines.add(Text.translatable("cobblemarket.item.tooltip_price").formatted(Formatting.GRAY).append(" ").append("${com.shusheng.cobblemarket.client.formatPrice(entry.price)} ${entry.currencyName}"))
         lines.add(Text.literal("×${entry.count}"))
 
         var maxWidth = 0

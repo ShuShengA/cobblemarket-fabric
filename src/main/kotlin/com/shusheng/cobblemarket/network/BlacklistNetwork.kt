@@ -19,6 +19,7 @@ fun PokemonBlacklistEntry.write(buf: PacketByteBuf) {
     buf.writeInt(ivSpAtk)
     buf.writeInt(ivSpDef)
     buf.writeInt(ivSpd)
+    buf.writeVarInt(aspects.size); aspects.forEach { buf.writeString(it) }
 }
 
 fun readBlacklistEntry(buf: PacketByteBuf): PokemonBlacklistEntry = PokemonBlacklistEntry(
@@ -29,7 +30,8 @@ fun readBlacklistEntry(buf: PacketByteBuf): PokemonBlacklistEntry = PokemonBlack
     ivDef = buf.readInt(),
     ivSpAtk = buf.readInt(),
     ivSpDef = buf.readInt(),
-    ivSpd = buf.readInt()
+    ivSpd = buf.readInt(),
+    aspects = (0 until buf.readVarInt()).map { buf.readString() }
 )
 
 // ── C2S: 请求黑名单 ──
@@ -54,7 +56,8 @@ data class AddPokemonBlacklistPayload(
     val ivDef: Int,
     val ivSpAtk: Int,
     val ivSpDef: Int,
-    val ivSpd: Int
+    val ivSpd: Int,
+    val aspects: List<String>
 ) : CustomPayload {
     override fun getId() = ID
     companion object {
@@ -64,12 +67,14 @@ data class AddPokemonBlacklistPayload(
                 b.writeString(p.speciesId)
                 b.writeInt(p.ivHp); b.writeInt(p.ivAtk); b.writeInt(p.ivDef)
                 b.writeInt(p.ivSpAtk); b.writeInt(p.ivSpDef); b.writeInt(p.ivSpd)
+                b.writeVarInt(p.aspects.size); p.aspects.forEach { b.writeString(it) }
             },
             { b ->
                 AddPokemonBlacklistPayload(
                     b.readString(),
                     b.readInt(), b.readInt(), b.readInt(),
-                    b.readInt(), b.readInt(), b.readInt()
+                    b.readInt(), b.readInt(), b.readInt(),
+                    (0 until b.readVarInt()).map { b.readString() }
                 )
             }
         )
@@ -126,7 +131,13 @@ object BlacklistNetwork {
             val server = player.server
             server.execute {
                 val speciesId = com.shusheng.cobblemarket.util.SpeciesText.resolveByNameOrId(payload.speciesId)
-                    ?: return@execute
+                if (speciesId == null) {
+                    // 解析失败明确反馈，不再静默丢弃
+                    player.sendMessage(
+                        net.minecraft.text.Text.translatable("cobblemarket.blacklist.not_found")
+                            .formatted(net.minecraft.util.Formatting.RED), false)
+                    return@execute
+                }
                 val entry = PokemonBlacklistEntry(
                     id = UUID.randomUUID(),
                     speciesId = speciesId,
@@ -135,7 +146,8 @@ object BlacklistNetwork {
                     ivDef = payload.ivDef,
                     ivSpAtk = payload.ivSpAtk,
                     ivSpDef = payload.ivSpDef,
-                    ivSpd = payload.ivSpd
+                    ivSpd = payload.ivSpd,
+                    aspects = payload.aspects
                 )
                 PokemonBlacklistState.get(server).add(entry)
                 val entries = PokemonBlacklistState.get(server).getAll()

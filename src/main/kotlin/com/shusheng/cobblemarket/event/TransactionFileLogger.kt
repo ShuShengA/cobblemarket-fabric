@@ -5,22 +5,25 @@ import net.fabricmc.loader.api.FabricLoader
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object TransactionFileLogger {
 
     private val DANGEROUS_PREFIXES = setOf('=', '+', '-', '@')
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd")
-    private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    // DateTimeFormatter 线程安全（SimpleDateFormat 不是），系统时区与旧行为一致
+    private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     private var currentDate = ""
     private var currentZhFile: File? = null
     private var currentEnFile: File? = null
 
     fun log(record: TransactionRecord) {
         try {
-            val date = dateFormat.format(Date(record.timestamp))
+            val instant = Instant.ofEpochMilli(record.timestamp).atZone(ZoneId.systemDefault())
+            val date = dateFormat.format(instant)
             if (date != currentDate) {
                 currentDate = date
                 currentZhFile = resolveFile(date, "zh_cn", "时间,类型,分类,卖家,买家,精灵,价格,手续费")
@@ -46,7 +49,7 @@ object TransactionFileLogger {
     }
 
     private fun buildCsvLine(record: TransactionRecord, lang: String): String {
-        val time = timeFormat.format(Date(record.timestamp))
+        val time = timeFormat.format(Instant.ofEpochMilli(record.timestamp).atZone(ZoneId.systemDefault()))
         val type = typeName(record.type, lang)
         val category = record.category.name
         val seller = csvEscape(record.sellerName)

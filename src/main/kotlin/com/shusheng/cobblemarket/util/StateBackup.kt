@@ -39,10 +39,18 @@ object StateBackup {
                             CobbleMarket.LOGGER.error("Failed to restore {} from backup: {}", file.name, e.message)
                         }
                     } else {
-                        CobbleMarket.LOGGER.error(
-                            "CobbleMarket state file {} is corrupted and no backup exists; its data may be lost",
-                            file.name
-                        )
+                        // 无备份可恢复：把损坏文件改名保留（.corrupt），给人工/工具修复留机会。
+                        // MC 启动时找不到 .dat 会静默新建空状态——不保留的话损坏原件会被覆盖，彻底没救
+                        val corruptFile = File(file.parentFile, file.name + ".corrupt")
+                        try {
+                            Files.move(file.toPath(), corruptFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                            CobbleMarket.LOGGER.error(
+                                "CobbleMarket state file {} is corrupted and no backup exists; preserved as {} for manual recovery",
+                                file.name, corruptFile.name
+                            )
+                        } catch (e: Exception) {
+                            CobbleMarket.LOGGER.error("Failed to preserve corrupted state file {}: {}", file.name, e.message)
+                        }
                     }
                 } else {
                     copyToBackup(file)
