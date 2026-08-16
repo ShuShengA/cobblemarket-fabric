@@ -54,6 +54,20 @@ A player-to-player trading market for Cobblemon servers — buy and sell Pokémo
 | `/market unban <player>` | Remove a ban |
 | `/market banlist` | List all active bans |
 
+## Data Safety / 数据安全
+
+Market data is stored in `world/data/cobblemarket*.dat`. On every startup, the mod verifies file integrity and maintains a rolling `.bak` backup:
+
+- **Auto-verify on startup** — if the main file is corrupted, it is automatically restored from `.bak` (only changes since the last backup are lost)
+- **Corrupt-file preservation** — if no backup exists, the damaged file is kept as `cobblemarket*.dat.corrupt` for manual recovery, and the server starts with fresh data
+- **Log messages** — watch for `restored from backup` (recovered) or `preserved as .corrupt` (needs manual attention) in the server log
+
+市场数据保存在 `world/data/cobblemarket*.dat`。每次启动模组会校验文件完整性并维护 `.bak` 滚动备份：
+
+- **启动自动校验** — 主文件损坏时自动从 `.bak` 恢复（仅丢失上次备份后的增量）
+- **损坏文件保留** — 若无备份可用，损坏文件会保留为 `.dat.corrupt` 供人工修复，服务器以空数据启动
+- **日志提示** — 服务器日志中出现 `restored from backup`（已恢复）或 `preserved as .corrupt`（需人工处理）时请留意
+
 ## Configuration / 配置
 
 Config file: `config/cobblemarket.json` (generated on first launch)

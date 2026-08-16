@@ -5,8 +5,8 @@ import net.fabricmc.loader.api.FabricLoader
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -15,8 +15,9 @@ import java.util.UUID
  */
 object CleanupLogger {
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd")
-    private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    // DateTimeFormatter 线程安全（SimpleDateFormat 不是），系统时区与旧行为一致
+    private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
     fun log(
         category: String,
@@ -27,7 +28,8 @@ object CleanupLogger {
         retainedDays: Long
     ) {
         try {
-            val date = dateFormat.format(Date())
+            val now = LocalDateTime.now()
+            val date = now.format(dateFormat)
             val dir = FabricLoader.getInstance().configDir.resolve("cobblemarket/history").toFile()
             dir.mkdirs()
             val file = File(dir, "cleaned_$date.csv")
@@ -35,7 +37,7 @@ object CleanupLogger {
                 file.writeText("Time,Category,PlayerUUID,ListingID,Detail,Price,RetainedDays\n")
             }
             val safeDetail = "\"" + detail.replace("\"", "\"\"") + "\""
-            val line = "${timeFormat.format(Date())},$category,$playerUuid,$listingId,$safeDetail,$price,$retainedDays"
+            val line = "${now.format(timeFormat)},$category,$playerUuid,$listingId,$safeDetail,$price,$retainedDays"
             Files.writeString(file.toPath(), line + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND)
         } catch (e: Exception) {
             CobbleMarket.LOGGER.warn("Failed to write cleanup log: {}", e.message)

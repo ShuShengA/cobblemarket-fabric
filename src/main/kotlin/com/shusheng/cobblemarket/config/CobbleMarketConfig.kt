@@ -49,7 +49,11 @@ object CobbleMarketConfig {
                 itemListingFeePercent = (data["itemListingFeePercent"] as? Double) ?: legacyFee ?: 5.0
                 maxPokemonListingsPerPlayer = (data["maxPokemonListingsPerPlayer"] as? Double)?.toInt() ?: 0
                 maxItemListingsPerPlayer = (data["maxItemListingsPerPlayer"] as? Double)?.toInt() ?: 0
-                listingDurationDays = (data["listingDurationDays"] as? Double)?.toInt() ?: 14
+                val rawDuration = (data["listingDurationDays"] as? Double)?.toInt()
+                listingDurationDays = (rawDuration ?: 14).coerceAtLeast(1)
+                if (rawDuration != null && rawDuration < 1) {
+                    CobbleMarket.LOGGER.warn("Config listingDurationDays={} is invalid (must be positive); clamped to 1", rawDuration)
+                }
                 pendingReturnRetentionDays = (data["pendingReturnRetentionDays"] as? Double)?.toInt() ?: 30
             } catch (e: Exception) {
                 CobbleMarket.LOGGER.warn("Failed to load config: ${e.message}")

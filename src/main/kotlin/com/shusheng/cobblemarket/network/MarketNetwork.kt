@@ -869,6 +869,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(BuyFromMarketPayload.ID) { payload, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "buy_pokemon", RequestThrottle.WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val banCheckTime = System.currentTimeMillis()
@@ -915,6 +916,17 @@ object MarketNetwork {
                     ServerPlayNetworking.send(
                         player,
                         MarketResultPayload(false, Text.translatable("cobblemarket.network.not_found"))
+                    )
+                    return@execute
+                }
+
+                // 黑名单检查：拦截上架后被加入黑名单的存量挂单（治理即时生效）
+                if (com.shusheng.cobblemarket.market.PokemonBlacklistState.get(server)
+                        .isBlacklisted(pokemon)
+                ) {
+                    ServerPlayNetworking.send(
+                        player,
+                        MarketResultPayload(false, Text.translatable("cobblemarket.blacklist.blocked"))
                     )
                     return@execute
                 }
@@ -994,6 +1006,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(CancelFromMarketPayload.ID) { payload, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "cancel_pokemon", RequestThrottle.REPEAT_WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 // 封禁只禁止交易；取消挂单是取回自己的资产，允许
@@ -1723,6 +1736,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(BuyItemPayload.ID) { payload, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "buy_item", RequestThrottle.WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val banCheckTime = System.currentTimeMillis()
@@ -1756,6 +1770,14 @@ object MarketNetwork {
                     ServerPlayNetworking.send(
                         player,
                         MarketResultPayload(false, Text.translatable("cobblemarket.network.cannot_buy_own"))
+                    )
+                    return@execute
+                }
+                // 黑名单检查：拦截上架后被加入黑名单的存量挂单（治理即时生效）
+                if (com.shusheng.cobblemarket.market.ItemBlacklistState.get(server).contains(listing.itemId)) {
+                    ServerPlayNetworking.send(
+                        player,
+                        MarketResultPayload(false, Text.translatable("cobblemarket.blacklist.item_blocked"))
                     )
                     return@execute
                 }
@@ -1893,6 +1915,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(CancelItemPayload.ID) { payload, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "cancel_item", RequestThrottle.REPEAT_WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 // 封禁只禁止交易；取消挂单是取回自己的资产，允许
@@ -1990,6 +2013,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(CollectBalancePayload.ID) { _, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "collect_balance", RequestThrottle.WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val state = MarketState.get(server)
@@ -2070,6 +2094,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(ClaimPokemonReturnPayload.ID) { _, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "claim_pokemon_return", RequestThrottle.REPEAT_WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val state = MarketState.get(server)
@@ -2115,6 +2140,7 @@ object MarketNetwork {
 
         ServerPlayNetworking.registerGlobalReceiver(ClaimItemReturnPayload.ID) { _, context ->
             val player = context.player()
+            if (!RequestThrottle.allow(player.uuid, "claim_item_return", RequestThrottle.REPEAT_WRITE_INTERVAL_MS)) return@registerGlobalReceiver
             val server = player.server
             server.execute {
                 val state = ItemMarketState.get(server)

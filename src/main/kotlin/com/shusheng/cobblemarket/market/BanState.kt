@@ -103,13 +103,19 @@ class BanState private constructor() : PersistentState() {
             var total = 0L
             var matched = false
             regex.findAll(input.lowercase()).forEach { m ->
-                val v = m.groupValues[1].toLongOrNull() ?: return@forEach
-                total += when (m.groupValues[2]) {
-                    "d" -> v * 24L * 60 * 60 * 1000
-                    "h" -> v * 60L * 60 * 1000
-                    "m" -> v * 60L * 1000
-                    else -> 0L
+                // 数字超 Long 范围：整体解析失败，宁报错不静默忽略该段
+                val v = m.groupValues[1].toLongOrNull() ?: return null
+                val unitMs = when (m.groupValues[2]) {
+                    "d" -> 24L * 60 * 60 * 1000
+                    "h" -> 60L * 60 * 1000
+                    "m" -> 60L * 1000
+                    else -> return null
                 }
+                // 乘法/累加溢出防护：Long 回绕会颠覆封禁语义，改为安全失败
+                if (v > Long.MAX_VALUE / unitMs) return null
+                val addMs = v * unitMs
+                if (total > Long.MAX_VALUE - addMs) return null
+                total += addMs
                 matched = true
             }
             return if (matched && total > 0) total else null

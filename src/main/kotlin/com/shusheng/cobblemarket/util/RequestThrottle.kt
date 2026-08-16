@@ -11,6 +11,12 @@ import java.util.concurrent.ConcurrentHashMap
 object RequestThrottle {
     const val READ_INTERVAL_MS = 500L
 
+    /** 写操作冷却：购买/汇总领取涉及资产变动，正常操作频率低，与读操作同级 */
+    const val WRITE_INTERVAL_MS = 500L
+
+    /** 连续写操作冷却：取消/领取可批量连点，250ms 对人类连点无感，仍能挡住高频发包 */
+    const val REPEAT_WRITE_INTERVAL_MS = 250L
+
     private val lastRequest = ConcurrentHashMap<String, Long>()
 
     fun allow(playerUuid: UUID, key: String, minIntervalMs: Long): Boolean {

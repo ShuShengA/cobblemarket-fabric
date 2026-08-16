@@ -39,12 +39,12 @@ object CobbleMarket : ModInitializer {
 		ServerLifecycleEvents.SERVER_STARTED.register { server ->
 			TransactionHistory.historyRef = TransactionHistory.get(server)
 		}
-		ServerLifecycleEvents.SERVER_STOPPING.register {
-			TransactionHistory.historyRef = null
-		}
 		ServerLifecycleEvents.SERVER_STOPPED.register { server ->
 			// 正常关服保存完成后，用最新数据刷新备份
 			com.shusheng.cobblemarket.util.StateBackup.backupOnStop(server)
+			// 备份完成后释放历史记录静态引用；不在 STOPPING 提前置 null，
+			// 覆盖 STOPPING→STOPPED 窗口内的事件写入（CSV 文件日志同步落盘）
+			TransactionHistory.historyRef = null
 		}
 
 		ServerPlayConnectionEvents.DISCONNECT.register { handler, _ ->
