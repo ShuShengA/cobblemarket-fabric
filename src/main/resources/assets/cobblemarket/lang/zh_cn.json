@@ -1,4 +1,5 @@
 {
+  "cobblemarket.mod_description": "面向 Cobblemon 服务器的玩家交易市场（Fabric）：支持精灵与物品的挂单买卖，包含可配置上架手续费、封禁、交易历史、过期退回，并支持 CobbleDollars 虚拟货币。",
   "cobblemarket.gui.title": "精灵市场",
   "cobblemarket.entry.title": "Cobble市场",
   "cobblemarket.entry.pokemon": "精灵市场",
