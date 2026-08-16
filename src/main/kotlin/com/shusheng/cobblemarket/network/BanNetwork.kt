@@ -172,10 +172,8 @@ object BanNetwork {
                         bannedBy = info.bannedBy,
                         bannedAt = info.bannedAt,
                         expiresAt = info.expiresAt,
-                        durationDisplay = if (info.isPermanent)
-                            Text.translatable("cobblemarket.ban.permanent").string
-                        else
-                            BanState.formatRemaining(info.expiresAt!! - now),
+                        // permanent 发空串，客户端按 expiresAt == null 用翻译键渲染"永久"
+                        durationDisplay = if (info.isPermanent) "" else BanState.formatRemaining(info.expiresAt!! - now),
                         reason = info.reason
                     )
                 }
@@ -185,10 +183,11 @@ object BanNetwork {
     }
 
     private fun buildBanNotice(expiresAt: Long?, reason: String): MutableText {
-        val timeDesc = if (expiresAt == null)
-            Text.translatable("cobblemarket.ban.permanent").string
+        // 保留 Text 对象：嵌套翻译在客户端语言下渲染
+        val timeDesc: Text = if (expiresAt == null)
+            Text.translatable("cobblemarket.ban.permanent")
         else
-            Text.translatable("cobblemarket.ban.remaining", BanState.formatRemaining(expiresAt - System.currentTimeMillis())).string
+            Text.translatable("cobblemarket.ban.remaining", BanState.formatRemaining(expiresAt - System.currentTimeMillis()))
         val msg = if (reason.isNotBlank())
             Text.translatable("cobblemarket.ban.banned_msg_time_reason", timeDesc, reason)
         else

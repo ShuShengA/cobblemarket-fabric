@@ -127,10 +127,11 @@ object MarketCommands {
 
         source.sendFeedback({ Text.translatable("cobblemarket.ban.banlist_title").formatted(Formatting.GOLD) }, false)
         bans.forEach { info ->
-            val duration = if (info.isPermanent)
-                Text.translatable("cobblemarket.ban.permanent").string
+            // 保留 Text 对象：嵌套翻译在客户端语言下渲染
+            val duration: Text = if (info.isPermanent)
+                Text.translatable("cobblemarket.ban.permanent")
             else
-                BanState.formatRemaining(info.expiresAt!! - System.currentTimeMillis())
+                Text.literal(BanState.formatRemaining(info.expiresAt!! - System.currentTimeMillis()))
             source.sendFeedback({
                 Text.translatable("cobblemarket.ban.banlist_entry", info.playerName, info.bannedBy, duration)
             }, false)

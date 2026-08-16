@@ -875,13 +875,14 @@ object MarketNetwork {
                 val banCheckTime = System.currentTimeMillis()
                 val banInfo = BanState.get(server).getBanInfo(player.uuid, banCheckTime)
                 if (banInfo != null) {
-                    val timeDesc = if (banInfo.isPermanent)
-                        Text.translatable("cobblemarket.ban.permanent").string
+                    // 保留 Text 对象而非 .string：翻译在客户端语言下渲染（服务端语言 ≠ 客户端语言）
+                    val timeDesc: Text = if (banInfo.isPermanent)
+                        Text.translatable("cobblemarket.ban.permanent")
                     else
                         Text.translatable(
                             "cobblemarket.ban.remaining",
                             BanState.formatRemaining(banInfo.expiresAt!! - banCheckTime)
-                        ).string
+                        )
                     val banMsg = if (banInfo.reason.isNotBlank())
                         Text.translatable("cobblemarket.ban.banned_msg_time_reason", timeDesc, banInfo.reason)
                     else
@@ -1310,13 +1311,14 @@ object MarketNetwork {
                 val banCheckTime = System.currentTimeMillis()
                 val banInfo = BanState.get(server).getBanInfo(player.uuid, banCheckTime)
                 if (banInfo != null) {
-                    val timeDesc = if (banInfo.isPermanent)
-                        Text.translatable("cobblemarket.ban.permanent").string
+                    // 保留 Text 对象而非 .string：翻译在客户端语言下渲染（服务端语言 ≠ 客户端语言）
+                    val timeDesc: Text = if (banInfo.isPermanent)
+                        Text.translatable("cobblemarket.ban.permanent")
                     else
                         Text.translatable(
                             "cobblemarket.ban.remaining",
                             BanState.formatRemaining(banInfo.expiresAt!! - banCheckTime)
-                        ).string
+                        )
                     val banMsg = if (banInfo.reason.isNotBlank())
                         Text.translatable("cobblemarket.ban.banned_msg_time_reason", timeDesc, banInfo.reason)
                     else
@@ -1501,13 +1503,14 @@ object MarketNetwork {
                 val banCheckTime = System.currentTimeMillis()
                 val banInfo = BanState.get(server).getBanInfo(player.uuid, banCheckTime)
                 if (banInfo != null) {
-                    val timeDesc = if (banInfo.isPermanent)
-                        Text.translatable("cobblemarket.ban.permanent").string
+                    // 保留 Text 对象而非 .string：翻译在客户端语言下渲染（服务端语言 ≠ 客户端语言）
+                    val timeDesc: Text = if (banInfo.isPermanent)
+                        Text.translatable("cobblemarket.ban.permanent")
                     else
                         Text.translatable(
                             "cobblemarket.ban.remaining",
                             BanState.formatRemaining(banInfo.expiresAt!! - banCheckTime)
-                        ).string
+                        )
                     val banMsg = if (banInfo.reason.isNotBlank())
                         Text.translatable("cobblemarket.ban.banned_msg_time_reason", timeDesc, banInfo.reason)
                     else
@@ -1742,13 +1745,14 @@ object MarketNetwork {
                 val banCheckTime = System.currentTimeMillis()
                 val banInfo = BanState.get(server).getBanInfo(player.uuid, banCheckTime)
                 if (banInfo != null) {
-                    val timeDesc = if (banInfo.isPermanent)
-                        Text.translatable("cobblemarket.ban.permanent").string
+                    // 保留 Text 对象而非 .string：翻译在客户端语言下渲染（服务端语言 ≠ 客户端语言）
+                    val timeDesc: Text = if (banInfo.isPermanent)
+                        Text.translatable("cobblemarket.ban.permanent")
                     else
                         Text.translatable(
                             "cobblemarket.ban.remaining",
                             BanState.formatRemaining(banInfo.expiresAt!! - banCheckTime)
-                        ).string
+                        )
                     val banMsg = if (banInfo.reason.isNotBlank())
                         Text.translatable("cobblemarket.ban.banned_msg_time_reason", timeDesc, banInfo.reason)
                     else

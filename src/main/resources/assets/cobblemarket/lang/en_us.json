@@ -1,5 +1,4 @@
 {
-  "cobblemarket.mod_description": "A player-to-player trading market for Cobblemon (Fabric): buy and sell Pokémon and items, with configurable listing fees, per-player bans, transaction history, expired listing returns, and optional CobbleDollars currency support.",
   "cobblemarket.gui.title": "Pokemon Market",
   "cobblemarket.entry.title": "CobbleMarket",
   "cobblemarket.entry.pokemon": "Pokemon Market",

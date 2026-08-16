@@ -206,8 +206,13 @@ class AdminBanScreen : Screen(Text.translatable("cobblemarket.ban.title")) {
 
         bans.drop(scrollOffset).take(maxVisible()).forEachIndexed { i, entry ->
             val y = listStartY + i * rowHeight
+            // 永久封禁按客户端语言渲染"永久"（服务端只发空串）
+            val durationText = if (entry.expiresAt == null)
+                Text.translatable("cobblemarket.ban.permanent")
+            else
+                Text.literal(entry.durationDisplay)
             context.drawTextWithShadow(textRenderer,
-                "${entry.playerName}  ·  ${entry.bannedBy}  ·  ${entry.durationDisplay}",
+                Text.literal("${entry.playerName}  ·  ${entry.bannedBy}  ·  ").append(durationText),
                 leftX + 4, y + 5, 0xFFFFFF)
         }
 

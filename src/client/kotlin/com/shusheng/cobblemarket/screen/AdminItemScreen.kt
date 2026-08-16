@@ -45,7 +45,9 @@ class AdminItemScreen : Screen(Text.translatable("cobblemarket.op.item")) {
 
     private fun columns() = (panelWidth + gap) / (slotSize + gap)
     private fun getGridStartY() = 84
-    private fun rows() = maxOf(0, (height - getGridStartY() - 48) / (slotSize + gap))
+    // 底部预留 56px（翻页按钮 20 + 面板底边框 16 + 间距 20），
+    // 保证窗口高度为任意值时翻页按钮都不会遮住面板底部边框
+    private fun rows() = maxOf(0, (height - getGridStartY() - 56) / (slotSize + gap))
 
     private fun prevPage() { if (currentPage > 1) { currentPage--; refreshData() } }
     private fun nextPage() { if (currentPage < totalPages) { currentPage++; refreshData() } }
