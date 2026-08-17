@@ -1,6 +1,9 @@
 ════════════════════════════════════════
 
-CobbleMarket —— A Player-to-Player Trading Market for Cobblemon Servers
+# CobbleMarket —— A Player-to-Player Trading Market for Cobblemon Servers
+
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-green)](https://modrinth.com/mod/fabric-api)
+[![Fabric](https://img.shields.io/badge/Loader-Fabric-orange)](https://fabricmc.net/)
 
 ════════════════════════════════════════
 
